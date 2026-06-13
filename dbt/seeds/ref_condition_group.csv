@@ -1,0 +1,9 @@
+condition_group_code,condition_group_name,description
+DIABETES,Diabetes Mellitus,Synthetic grouping of type 1 and type 2 diabetes and related complications
+HYPERTENSION,Hypertension,Synthetic grouping of essential and secondary hypertension conditions
+CHF,Congestive Heart Failure,Synthetic grouping of systolic and diastolic heart failure conditions
+COPD,Chronic Obstructive Pulmonary Disease,Synthetic grouping of COPD emphysema and chronic bronchitis conditions
+CKD,Chronic Kidney Disease,Synthetic grouping of chronic kidney disease stages and end stage renal disease
+BEHAVIORAL_HEALTH,Behavioral Health,Synthetic grouping of mood anxiety and substance use disorders
+MATERNITY,Maternity,Synthetic grouping of pregnancy delivery and postpartum encounters
+ONCOLOGY,Oncology,Synthetic grouping of malignant neoplasm and cancer treatment conditions

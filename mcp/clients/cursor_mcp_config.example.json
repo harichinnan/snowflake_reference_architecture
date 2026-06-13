@@ -1,0 +1,71 @@
+{
+  "//": "==========================================================================",
+  "//1": "snowflake-claims-platform :: Cursor MCP client configuration",
+  "//2": "Copy into: <project>/.cursor/mcp.json  (project scope)",
+  "//3": "        or: ~/.cursor/mcp.json          (global scope)",
+  "//4": "All data in this platform is SYNTHETIC. There is no real PHI/PII.",
+  "//5": "==========================================================================",
+
+  "//PRIMARY": "PRIMARY (recommended): Snowflake-managed MCP server (remote HTTP/SSE).",
+  "//PRIMARY2": "Cursor can connect to a remote MCP server directly via a URL. Authenticate",
+  "//PRIMARY3": "as CLAIMS_MCP_READER with a short-lived PAT/OAuth token in the header.",
+
+  "mcpServers": {
+    "snowflake-claims-managed": {
+      "//note": "PRIMARY. Remote Snowflake-managed MCP endpoint. Native URL transport.",
+      "url": "https://<ORG>-<ACCOUNT>.snowflakecomputing.com/api/v2/databases/CLAIMS_DEV/schemas/CORTEX/mcp-servers/CLAIMS_MCP",
+      "headers": {
+        "Authorization": "Bearer <PASTE_SHORT_LIVED_PAT_HERE>",
+        "X-Snowflake-Role": "CLAIMS_MCP_READER",
+        "X-Snowflake-Warehouse": "WH_CLAIMS_MCP"
+      }
+    },
+
+    "//FALLBACK": "FALLBACK ONLY (not primary): local custom stdio server. Use only when",
+    "//FALLBACK2": "the Snowflake-managed MCP server is unavailable. Read-only, SELECT-only,",
+    "//FALLBACK3": "schema-allowlisted, logs to AUDIT.MCP_QUERY_LOG. Remove the leading",
+    "//FALLBACK4": "underscore from the key below to enable.",
+
+    "_snowflake-claims-fallback": {
+      "//note": "FALLBACK ONLY. Local Python stdio server. Prefer the managed server above.",
+      "command": "python",
+      "args": ["-m", "server"],
+      "cwd": "/ABSOLUTE/PATH/TO/snowflake_reference_architecture/mcp/fallback_custom_server",
+      "env": {
+        "SNOWFLAKE_ACCOUNT": "<ORG>-<ACCOUNT>",
+        "SNOWFLAKE_USER": "<MCP_SERVICE_USER>",
+        "SNOWFLAKE_PRIVATE_KEY_PATH": "/ABSOLUTE/PATH/TO/rsa_key.p8",
+        "SNOWFLAKE_PRIVATE_KEY_PASSPHRASE": "<OPTIONAL_KEY_PASSPHRASE>",
+        "SNOWFLAKE_ROLE": "CLAIMS_MCP_READER",
+        "SNOWFLAKE_WAREHOUSE": "WH_CLAIMS_MCP",
+        "SNOWFLAKE_DATABASE": "CLAIMS_DEV",
+        "SNOWFLAKE_SCHEMA": "SEMANTIC",
+        "MCP_MAX_ROWS": "1000",
+        "MCP_QUERY_TIMEOUT_SECONDS": "60"
+      }
+    },
+
+    "//FALLBACK_SSO": "FALLBACK ONLY (local-dev SSO variant): same local stdio server",
+    "//FALLBACK_SSO2": "with externalbrowser (Snowflake SSO) auth. Opens a browser to log in;",
+    "//FALLBACK_SSO3": "use only on a machine with a browser. Remove the leading underscore",
+    "//FALLBACK_SSO4": "from the key below to enable.",
+
+    "_snowflake-claims-fallback-sso": {
+      "//note": "FALLBACK ONLY. Local Python stdio server with externalbrowser (SSO) auth.",
+      "command": "python",
+      "args": ["-m", "server"],
+      "cwd": "/ABSOLUTE/PATH/TO/snowflake_reference_architecture/mcp/fallback_custom_server",
+      "env": {
+        "SNOWFLAKE_ACCOUNT": "<ORG>-<ACCOUNT>",
+        "SNOWFLAKE_USER": "<your.sso.login@example.com>",
+        "SNOWFLAKE_AUTHENTICATOR": "externalbrowser",
+        "SNOWFLAKE_ROLE": "CLAIMS_MCP_READER",
+        "SNOWFLAKE_WAREHOUSE": "WH_CLAIMS_MCP",
+        "SNOWFLAKE_DATABASE": "CLAIMS_DEV",
+        "SNOWFLAKE_SCHEMA": "SEMANTIC",
+        "MCP_MAX_ROWS": "1000",
+        "MCP_QUERY_TIMEOUT_SECONDS": "60"
+      }
+    }
+  }
+}

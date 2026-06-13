@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "claims-mcp-fallback"
+version = "0.1.0"
+description = "FALLBACK custom MCP server for snowflake-claims-platform (read-only Cortex/SQL over governed claims data; synthetic). Primary path is the Snowflake-managed MCP server."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "snowflake-claims-platform" }]
+keywords = ["mcp", "snowflake", "cortex", "claims", "read-only", "fallback"]
+
+dependencies = [
+    # Official Model Context Protocol Python SDK (provides FastMCP).
+    "mcp>=1.2.0",
+    # Snowflake Python connector (used read-only as CLAIMS_MCP_READER).
+    "snowflake-connector-python>=3.7.0",
+    # cryptography is required for key-pair (RSA) auth, the preferred method.
+    "cryptography>=42.0.0",
+    # Validation / typed models.
+    "pydantic>=2.6.0",
+    # Load connection settings from a local .env.
+    "python-dotenv>=1.0.0",
+    # REST client for the Cortex Analyst API (when enabled in the account).
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "mypy>=1.8.0",
+    "ruff>=0.3.0",
+]
+
+[project.scripts]
+# Console entry point: `claims-mcp-fallback` runs the stdio server.
+claims-mcp-fallback = "server:main"
+
+[tool.hatch.build.targets.wheel]
+# Ship the server module and its tools package.
+include = ["server.py", "tools/**"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_ignores = true
+ignore_missing_imports = true

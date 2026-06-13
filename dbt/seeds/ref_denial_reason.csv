@@ -1,0 +1,19 @@
+denial_reason_code,denial_reason_name,denial_category
+DN001,Service not covered by plan,COVERAGE
+DN002,Member not eligible on date of service,ELIGIBILITY
+DN003,Prior authorization required and missing,AUTHORIZATION
+DN004,Referral required and missing,AUTHORIZATION
+DN005,Duplicate claim submission,DUPLICATE
+DN006,Timely filing limit exceeded,TIMELY_FILING
+DN007,Out of network provider,NETWORK
+DN008,Diagnosis inconsistent with procedure,CLINICAL
+DN009,Maximum benefit reached,BENEFIT_LIMIT
+DN010,Non-covered investigational service,COVERAGE
+DN011,Missing or invalid procedure code,CODING
+DN012,Missing or invalid diagnosis code,CODING
+DN013,Bundled into another service,BUNDLING
+DN014,Coordination of benefits information needed,COB
+DN015,Provider not credentialed,CREDENTIALING
+DN016,Medical necessity not established,CLINICAL
+DN017,Incorrect place of service,CODING
+DN018,Patient responsibility deductible,PATIENT_RESPONSIBILITY

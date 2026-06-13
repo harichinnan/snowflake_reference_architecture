@@ -1,0 +1,23 @@
+diagnosis_code,code_system,short_description,condition_group
+E11.9,ICD10-SYNTH,Synthetic type 2 diabetes without complications,DIABETES
+E11.65,ICD10-SYNTH,Synthetic type 2 diabetes with hyperglycemia,DIABETES
+E10.9,ICD10-SYNTH,Synthetic type 1 diabetes without complications,DIABETES
+E11.22,ICD10-SYNTH,Synthetic type 2 diabetes with kidney complication,DIABETES
+I10,ICD10-SYNTH,Synthetic essential hypertension,HYPERTENSION
+I11.9,ICD10-SYNTH,Synthetic hypertensive heart disease no failure,HYPERTENSION
+I12.9,ICD10-SYNTH,Synthetic hypertensive chronic kidney disease,HYPERTENSION
+I50.9,ICD10-SYNTH,Synthetic heart failure unspecified,CHF
+I50.22,ICD10-SYNTH,Synthetic chronic systolic heart failure,CHF
+I50.32,ICD10-SYNTH,Synthetic chronic diastolic heart failure,CHF
+J44.9,ICD10-SYNTH,Synthetic chronic obstructive pulmonary disease,COPD
+J44.1,ICD10-SYNTH,Synthetic COPD with acute exacerbation,COPD
+J43.9,ICD10-SYNTH,Synthetic emphysema unspecified,COPD
+N18.3,ICD10-SYNTH,Synthetic chronic kidney disease stage 3,CKD
+N18.4,ICD10-SYNTH,Synthetic chronic kidney disease stage 4,CKD
+N18.6,ICD10-SYNTH,Synthetic end stage renal disease,CKD
+F32.9,ICD10-SYNTH,Synthetic major depressive disorder single episode,BEHAVIORAL_HEALTH
+F41.1,ICD10-SYNTH,Synthetic generalized anxiety disorder,BEHAVIORAL_HEALTH
+O80,ICD10-SYNTH,Synthetic encounter for full-term delivery,MATERNITY
+Z34.90,ICD10-SYNTH,Synthetic supervision of normal pregnancy,MATERNITY
+C50.911,ICD10-SYNTH,Synthetic malignant neoplasm of breast,ONCOLOGY
+C34.90,ICD10-SYNTH,Synthetic malignant neoplasm of lung,ONCOLOGY

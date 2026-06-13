@@ -1,0 +1,21 @@
+procedure_code,code_system,short_description,category
+99213,CPT-SYNTH,Synthetic office visit established patient low,EVALUATION_MGMT
+99214,CPT-SYNTH,Synthetic office visit established patient moderate,EVALUATION_MGMT
+99203,CPT-SYNTH,Synthetic office visit new patient low,EVALUATION_MGMT
+99285,CPT-SYNTH,Synthetic emergency department visit high,EMERGENCY
+93000,CPT-SYNTH,Synthetic electrocardiogram complete,DIAGNOSTIC
+80053,CPT-SYNTH,Synthetic comprehensive metabolic panel,LABORATORY
+85025,CPT-SYNTH,Synthetic complete blood count with differential,LABORATORY
+36415,CPT-SYNTH,Synthetic routine venipuncture collection,LABORATORY
+71046,CPT-SYNTH,Synthetic chest x-ray two views,RADIOLOGY
+70450,CPT-SYNTH,Synthetic ct head without contrast,RADIOLOGY
+45378,CPT-SYNTH,Synthetic diagnostic colonoscopy,SURGERY
+27447,CPT-SYNTH,Synthetic total knee arthroplasty,SURGERY
+G0008,HCPCS-SYNTH,Synthetic administration of influenza vaccine,PREVENTIVE
+G0009,HCPCS-SYNTH,Synthetic administration of pneumococcal vaccine,PREVENTIVE
+J1885,HCPCS-SYNTH,Synthetic injection ketorolac per unit,DRUG_ADMIN
+E0601,HCPCS-SYNTH,Synthetic continuous positive airway pressure device,DME
+A4253,HCPCS-SYNTH,Synthetic blood glucose test strips per box,DME
+90837,CPT-SYNTH,Synthetic psychotherapy sixty minutes,BEHAVIORAL_HEALTH
+59400,CPT-SYNTH,Synthetic routine obstetric care vaginal delivery,MATERNITY
+77067,CPT-SYNTH,Synthetic screening mammography bilateral,PREVENTIVE

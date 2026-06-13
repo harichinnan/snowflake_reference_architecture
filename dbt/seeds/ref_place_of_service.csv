@@ -1,0 +1,25 @@
+pos_code,pos_name
+11,Office
+12,Home
+19,Off Campus Outpatient Hospital
+20,Urgent Care Facility
+21,Inpatient Hospital
+22,On Campus Outpatient Hospital
+23,Emergency Room Hospital
+24,Ambulatory Surgical Center
+31,Skilled Nursing Facility
+32,Nursing Facility
+33,Custodial Care Facility
+34,Hospice
+49,Independent Clinic
+50,Federally Qualified Health Center
+51,Inpatient Psychiatric Facility
+57,Non-residential Substance Abuse Treatment Facility
+60,Mass Immunization Center
+62,Comprehensive Outpatient Rehabilitation Facility
+65,End-Stage Renal Disease Treatment Facility
+71,Public Health Clinic
+72,Rural Health Clinic
+81,Independent Laboratory
+02,Telehealth Provided Other Than in Patient Home
+10,Telehealth Provided in Patient Home

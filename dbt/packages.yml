@@ -1,0 +1,19 @@
+# =============================================================================
+# packages.yml
+# snowflake-claims-platform :: dbt package dependencies
+#
+# Run `dbt deps` after editing. Versions are pinned (range-pinned) to keep
+# builds reproducible while still allowing patch updates within a minor.
+# =============================================================================
+
+packages:
+  # dbt_utils: surrogate keys, generic tests, cross-db helpers, star(), etc.
+  # Required by macros/generate_surrogate_key.sql and several tests.
+  - package: dbt-labs/dbt_utils
+    version: [">=1.1.0", "<2.0.0"]
+
+  # dbt_expectations (OPTIONAL): Great-Expectations-style generic tests
+  # (expect_column_values_to_be_between, row count comparisons, etc.).
+  # Useful for the claims data-quality suite. Comment out if not needed.
+  - package: calogica/dbt_expectations
+    version: [">=0.10.0", "<0.11.0"]

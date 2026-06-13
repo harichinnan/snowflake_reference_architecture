@@ -1,0 +1,153 @@
+# =============================================================================
+# .github/workflows/dbt_main_cd.yml
+# -----------------------------------------------------------------------------
+# Continuous Delivery for dbt: builds the project into PRODUCTION on every push
+# to main that touches dbt/**, then publishes the resulting manifest.json as an
+# artifact so PR CI (dbt_pr_ci.yml) can run slim, state-based builds against it.
+#
+# Auth model: key-pair (SNOWFLAKE_JWT) preferred, same as PR CI. The base64
+# PKCS#8 key lives in SNOWFLAKE_PRIVATE_KEY; password is acceptable for a demo.
+#
+# profiles.yml strategy: copy the env-driven dbt/profiles.yml.example to
+# ~/.dbt/profiles.yml and export DBT_SNOWFLAKE_* env vars (see PR CI for the
+# rationale). The `prod` target hardcodes CLAIMS_PROD / WH_CLAIMS_TRANSFORM.
+#
+# PRODUCTION GATING IDEAS (recommended hardening):
+#   - Attach a GitHub Environment named `prod` (environment: prod below) with
+#     "Required reviewers" so a human must approve before the build runs.
+#   - Restrict which branches can deploy via the environment's deployment branch
+#     rules (main only).
+#   - Store prod Snowflake secrets as ENVIRONMENT secrets on `prod`, not repo
+#     secrets, so they're only exposed to approved deployments.
+#   - Consider a separate "blue/green" or "swap" pattern for zero-downtime, or
+#     gate destructive full-refreshes behind a manual workflow_dispatch input.
+# =============================================================================
+
+name: dbt main CD
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "dbt/**"
+  # Allow manual re-deploys / first-run manifest seeding.
+  workflow_dispatch:
+
+# Serialize prod deploys; never cancel an in-progress production build.
+concurrency:
+  group: dbt-main-cd
+  cancel-in-progress: false
+
+permissions:
+  contents: write # needed only if you enable the tag/release step below
+
+env:
+  DBT_SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+  DBT_SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+  # `prod` target falls back DBT_SNOWFLAKE_PROD_ROLE -> CLAIMS_TRANSFORMER_PROD.
+  DBT_SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+  SNOWFLAKE_WAREHOUSE: WH_CLAIMS_TRANSFORM
+  SNOWFLAKE_DATABASE: CLAIMS_PROD
+  DBT_SNOWFLAKE_VERSION: "1.8.4"
+
+jobs:
+  dbt-prod:
+    runs-on: ubuntu-latest
+    # Gate production behind an Environment with required reviewers (recommended).
+    # environment: prod
+    defaults:
+      run:
+        working-directory: dbt
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dbt-snowflake
+        run: |
+          python -m pip install --upgrade pip
+          pip install "dbt-snowflake==${DBT_SNOWFLAKE_VERSION}"
+          dbt --version
+
+      - name: Generate profiles.yml from env-driven example
+        run: |
+          mkdir -p "${HOME}/.dbt"
+          cp profiles.yml.example "${HOME}/.dbt/profiles.yml"
+
+      # Key-pair auth: decode key secret to a file and point dbt at it.
+      - name: Write Snowflake private key (key-pair auth)
+        if: ${{ secrets.SNOWFLAKE_PRIVATE_KEY != '' }}
+        run: |
+          mkdir -p "${HOME}/.ssh"
+          echo "${{ secrets.SNOWFLAKE_PRIVATE_KEY }}" | base64 --decode > "${HOME}/.ssh/snowflake_prod_key.p8"
+          chmod 600 "${HOME}/.ssh/snowflake_prod_key.p8"
+          echo "DBT_SNOWFLAKE_PRIVATE_KEY_PATH=${HOME}/.ssh/snowflake_prod_key.p8" >> "$GITHUB_ENV"
+          echo "DBT_SNOWFLAKE_PROD_PRIVATE_KEY_PASSPHRASE=${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}" >> "$GITHUB_ENV"
+
+      - name: dbt deps
+        run: dbt deps
+
+      # Single build = run + test + snapshot + seed in DAG order, into prod.
+      - name: dbt build (prod)
+        run: dbt build --target prod
+
+      # -----------------------------------------------------------------------
+      # Publish the prod manifest. PR CI fetches this (named 'dbt-prod-manifest')
+      # to drive state:modified+ slim builds. retention-days kept generous so a
+      # quiet period between merges still leaves a usable baseline.
+      # -----------------------------------------------------------------------
+      - name: Upload prod manifest artifact
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-prod-manifest
+          path: |
+            dbt/target/manifest.json
+            dbt/target/run_results.json
+          if-no-files-found: error
+          retention-days: 90
+
+      # -----------------------------------------------------------------------
+      # OPTIONAL: also persist manifest.json to a long-lived `dbt-state` branch.
+      # Artifacts expire (max 90d) and are awkward to fetch cross-workflow; a
+      # branch is a durable, easily-fetchable baseline. Enabled here as a guide.
+      # Requires permissions: contents: write.
+      # -----------------------------------------------------------------------
+      # - name: Persist manifest to dbt-state branch
+      #   run: |
+      #     set -euo pipefail
+      #     git config user.name  "github-actions[bot]"
+      #     git config user.email "github-actions[bot]@users.noreply.github.com"
+      #     mkdir -p /tmp/state && cp target/manifest.json /tmp/state/manifest.json
+      #     cd "${GITHUB_WORKSPACE}"
+      #     git fetch origin dbt-state || true
+      #     git checkout -B dbt-state origin/dbt-state 2>/dev/null || git checkout --orphan dbt-state
+      #     mkdir -p prod && cp /tmp/state/manifest.json prod/manifest.json
+      #     git add prod/manifest.json
+      #     git commit -m "ci: update prod manifest @ ${GITHUB_SHA::7}" || echo "no change"
+      #     git push origin dbt-state
+
+      # -----------------------------------------------------------------------
+      # OPTIONAL: tag the deployed commit with a short-SHA release for traceability.
+      # -----------------------------------------------------------------------
+      - name: Create release tag (short SHA)
+        if: ${{ success() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${GITHUB_SHA::7}"
+          TAG="dbt-prod-${SHORT_SHA}"
+          # Create a lightweight release; tolerate re-runs (tag may already exist).
+          gh release create "${TAG}" \
+            --title "dbt prod deploy ${SHORT_SHA}" \
+            --notes "Automated dbt build --target prod from ${GITHUB_SHA}." \
+            --target "${GITHUB_SHA}" \
+            || echo "Release ${TAG} already exists; skipping."

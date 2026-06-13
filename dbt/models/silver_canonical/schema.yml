@@ -1,0 +1,434 @@
+version: 2
+
+# =============================================================================
+# SILVER_CANONICAL :: model + test documentation
+#
+# Conventions
+#   * Surrogate keys (*_sk) are stable hashes via generate_surrogate_key and are
+#     tested unique + not_null.
+#   * Natural keys (claim_id, member_id, npi, ...) are preserved from source and
+#     tested for not_null (and unique at the entity grain).
+#   * Audit columns tie back to DCM: source_system, batch_id, load_id,
+#     pipeline_run_id, payload_hash, created_at, updated_at, is_current,
+#     effective_from, effective_to. Only VALID bronze rows (record_status =
+#     'VALID') flow into these models.
+#   * Reference values validated via accepted_values / relationships to seeds.
+# =============================================================================
+
+models:
+
+  # ===========================================================================
+  # INTERMEDIATE
+  # ===========================================================================
+  - name: int_claim_event_deduped
+    description: >
+      Deduplicated, typed claim events. One row per (claim_id, claim_version):
+      the latest physical extract wins via QUALIFY ROW_NUMBER(). Reads only VALID
+      bronze rows from br_raw_claim_event and projects business fields out of the
+      VARIANT payload. Diagnoses / procedures / lines arrays are retained as
+      VARIANT for downstream FLATTEN models.
+    columns:
+      - name: claim_id
+        description: Source claim identifier (natural key, part 1).
+        tests: [not_null]
+      - name: claim_version
+        description: Monotonic claim restatement version (natural key, part 2).
+        tests: [not_null]
+      - name: claim_status
+        description: Claim adjudication status.
+        tests:
+          - accepted_values:
+              values: ['SUBMITTED', 'ACCEPTED', 'PENDED', 'PAID', 'DENIED', 'VOIDED', 'REVERSED', 'ADJUSTED']
+              config: { severity: warn }
+      - name: claim_type
+        description: Claim form/type classification.
+      - name: payload_hash
+        description: DCM content hash of the source payload.
+    tests:
+      # Composite natural key is unique post-dedupe.
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [claim_id, claim_version]
+
+  - name: int_late_arriving_claims
+    description: >
+      Flags claims received well after their service period closed
+      (received_lag_days > late_arrival_default_days and the service period
+      precedes the ingest period). Surfaces impacted_period for downstream
+      restatement of closed accounting periods.
+    columns:
+      - name: claim_id
+        tests: [not_null]
+      - name: claim_version
+        tests: [not_null]
+      - name: late_arrival_flag
+        description: True when the claim arrived late into a prior closed period.
+        tests:
+          - not_null
+          - accepted_values: { values: [true, false] }
+      - name: impacted_period
+        description: First-of-month period whose closed books are impacted (NULL if not late).
+
+  - name: int_claim_adjustment_chain
+    description: >
+      Reconstructs adjustment / void / reversal chains. chain_key =
+      coalesce(original_claim_id, claim_id) groups every version of a logical
+      claim; chain_seq is a dense 1..N ordering by claim_version. Classifies each
+      version as ORIGINAL / ADJUSTMENT / REVERSAL / VOID and derives
+      supersedes_claim_id. Validated by tests/assert_adjustment_chain_valid.
+    columns:
+      - name: claim_id
+        tests: [not_null]
+      - name: claim_version
+        tests: [not_null]
+      - name: original_claim_id
+        description: Chain head this version restates (self for ORIGINAL rows).
+        tests: [not_null]
+      - name: adjustment_type
+        description: Normalized lifecycle enum.
+        tests:
+          - not_null
+          - accepted_values: { values: ['ORIGINAL', 'ADJUSTMENT', 'REVERSAL', 'VOID'] }
+      - name: chain_seq
+        description: Dense 1..N sequence within the logical chain.
+        tests: [not_null]
+      - name: is_void
+        tests: [not_null]
+      - name: is_reversal
+        tests: [not_null]
+      - name: is_adjustment
+        tests: [not_null]
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [claim_id, claim_version]
+
+  - name: int_current_valid_claims
+    description: >
+      Resolves the current effective version of each claim. Voided / reversed /
+      superseded versions are is_current = false; exactly one version per claim_id
+      is is_current = true (or none if every version is voided/reversed).
+      Validated by tests/assert_no_duplicate_current_claims.
+    columns:
+      - name: claim_id
+        tests: [not_null]
+      - name: claim_version
+        tests: [not_null]
+      - name: is_current
+        description: True for the single live version of the claim.
+        tests:
+          - not_null
+          - accepted_values: { values: [true, false] }
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [claim_id, claim_version]
+
+  # ===========================================================================
+  # CANONICAL ENTITIES
+  # ===========================================================================
+  - name: patient
+    description: >
+      Patient/member master, one row per member_id. Demographics sourced from
+      eligibility (authoritative); members seen only on claims are surfaced with
+      NULL demographics. Derives age_band from birth_year.
+    columns:
+      - name: patient_sk
+        description: Surrogate key over member_id.
+        tests: [not_null, unique]
+      - name: member_id
+        description: Source member natural key.
+        tests: [not_null, unique]
+      - name: age_band
+        tests:
+          - accepted_values: { values: ['0-17', '18-34', '35-49', '50-64', '65+', 'UNKNOWN'] }
+      - name: is_current
+        tests: [not_null]
+      - name: source_system
+      - name: payload_hash
+
+  - name: eligibility_span
+    description: >
+      Non-overlapping coverage spans per (member_id, plan_id). Applies retroactive
+      eligibility (retro_effective_date) and merges/clips overlapping source
+      events via interval sessionization. Open-ended coverage has NULL
+      coverage_end_date. Non-overlap enforced by
+      assert_eligibility_spans_do_not_overlap.
+    columns:
+      - name: eligibility_sk
+        description: Surrogate over (member_id, plan_id, coverage_start_date).
+        tests: [not_null, unique]
+      - name: span_id
+        description: Alias of eligibility_sk used by the overlap test.
+        tests: [not_null, unique]
+      - name: member_id
+        tests: [not_null]
+      - name: plan_id
+      - name: coverage_start_date
+        tests: [not_null]
+      - name: start_date
+        description: Alias of coverage_start_date.
+      - name: end_date
+        description: Alias of coverage_end_date (NULL = open-ended).
+      - name: eligibility_status
+      - name: is_current
+        tests: [not_null]
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [member_id, plan_id, coverage_start_date]
+
+  - name: provider
+    description: >
+      Provider master, one row per normalized NPI (latest extract wins). Holds
+      name, specialty, taxonomy, type. Billing/rendering/facility ROLES live on
+      claim_header; this is the entity master.
+    columns:
+      - name: provider_sk
+        tests: [not_null, unique]
+      - name: npi
+        description: Normalized 10-char NPI natural key.
+        tests: [not_null, unique]
+      - name: specialty
+      - name: taxonomy_code
+      - name: is_current
+        tests: [not_null]
+
+  - name: payer
+    description: >
+      Distinct payer master conformed from claims + eligibility. Synthetic
+      payer_name; payer_category (MEDICARE/MEDICAID/COMMERCIAL) derived from the
+      representative plan_type via ref_plan_type.
+    columns:
+      - name: payer_sk
+        tests: [not_null, unique]
+      - name: payer_id
+        tests: [not_null, unique]
+      - name: payer_category
+        tests:
+          - accepted_values: { values: ['MEDICARE', 'MEDICAID', 'COMMERCIAL'] }
+      - name: is_current
+        tests: [not_null]
+
+  - name: plan
+    description: >
+      Distinct plan master conformed from claims + eligibility. Rolls up to
+      payer_id; plan_type_name resolved from ref_plan_type.
+    columns:
+      - name: plan_sk
+        tests: [not_null, unique]
+      - name: plan_id
+        tests: [not_null, unique]
+      - name: payer_id
+        description: FK to payer.
+        tests:
+          - relationships:
+              to: ref('payer')
+              field: payer_id
+              config: { severity: warn }
+      - name: plan_type
+      - name: is_current
+        tests: [not_null]
+
+  - name: claim_header
+    description: >
+      One row per current valid claim (header grain). Built from
+      int_current_valid_claims (is_current = true) with late-arrival flags. Holds
+      party keys, classification, dates, provider NPIs, money and lifecycle flags.
+      Header/line totals reconciled by assert_claim_header_line_totals_reconcile.
+    columns:
+      - name: claim_header_sk
+        description: Surrogate over (claim_id, claim_version).
+        tests: [not_null, unique]
+      - name: claim_id
+        description: Claim natural key (unique among current rows at this grain).
+        tests: [not_null, unique]
+      - name: claim_version
+        tests: [not_null]
+      - name: member_id
+        description: FK to patient.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('patient')
+              field: member_id
+              config: { severity: warn }
+      - name: payer_id
+        tests:
+          - relationships:
+              to: ref('payer')
+              field: payer_id
+              config: { severity: warn }
+      - name: plan_id
+        tests:
+          - relationships:
+              to: ref('plan')
+              field: plan_id
+              config: { severity: warn }
+      - name: claim_type
+        tests:
+          - relationships:
+              to: ref('ref_claim_type')
+              field: claim_type
+              config: { severity: warn }
+      - name: claim_status
+        description: Adjudication status of the current version.
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['SUBMITTED', 'ACCEPTED', 'PENDED', 'PAID', 'DENIED', 'VOIDED', 'REVERSED', 'ADJUSTED']
+              config: { severity: warn }
+      - name: paid_amount
+        description: Header paid amount; ties to SUM(claim_line.paid_amount).
+      - name: late_arrival_flag
+        tests: [not_null]
+      - name: is_current
+        tests: [not_null]
+
+  - name: claim_line
+    description: >
+      One row per claim service line (FLATTEN of payload:lines). Rolls up to the
+      header via claim_header_sk.
+    columns:
+      - name: claim_line_sk
+        description: Surrogate over (claim_id, claim_version, line_number).
+        tests: [not_null, unique]
+      - name: claim_header_sk
+        description: FK to claim_header.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('claim_header')
+              field: claim_header_sk
+      - name: claim_id
+        tests: [not_null]
+      - name: line_number
+        tests: [not_null]
+      - name: place_of_service
+        tests:
+          - relationships:
+              to: ref('ref_place_of_service')
+              field: place_of_service
+              config: { severity: warn }
+      - name: paid_amount
+        description: Line paid amount; sums to header paid_amount per version.
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [claim_id, claim_version, line_number]
+
+  - name: claim_diagnosis
+    description: >
+      One row per claim diagnosis (FLATTEN of payload:diagnoses), preserving
+      diagnosis_position and present_on_admission.
+    columns:
+      - name: claim_diagnosis_sk
+        description: Surrogate over (claim_id, claim_version, diagnosis_position).
+        tests: [not_null, unique]
+      - name: claim_header_sk
+        tests:
+          - not_null
+          - relationships:
+              to: ref('claim_header')
+              field: claim_header_sk
+      - name: claim_id
+        description: FK to claim_header.claim_id.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('claim_header')
+              field: claim_id
+      - name: diagnosis_code
+        tests:
+          - not_null
+          - relationships:
+              to: ref('ref_diagnosis_code')
+              field: diagnosis_code
+              config: { severity: warn }
+      - name: diagnosis_position
+        tests: [not_null]
+
+  - name: claim_procedure
+    description: >
+      One row per claim header-level procedure (FLATTEN of payload:procedures),
+      preserving procedure_position and procedure_date.
+    columns:
+      - name: claim_procedure_sk
+        description: Surrogate over (claim_id, claim_version, procedure_position).
+        tests: [not_null, unique]
+      - name: claim_header_sk
+        tests:
+          - not_null
+          - relationships:
+              to: ref('claim_header')
+              field: claim_header_sk
+      - name: claim_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('claim_header')
+              field: claim_id
+      - name: procedure_code
+        tests:
+          - not_null
+          - relationships:
+              to: ref('ref_procedure_code')
+              field: procedure_code
+              config: { severity: warn }
+      - name: procedure_position
+        tests: [not_null]
+
+  - name: pharmacy_claim
+    description: >
+      Conformed pharmacy (Rx) claim at the fill grain, one row per
+      pharmacy_claim_id (latest extract wins). NPIs normalized to 10 chars.
+    columns:
+      - name: pharmacy_claim_sk
+        tests: [not_null, unique]
+      - name: pharmacy_claim_id
+        tests: [not_null, unique]
+      - name: member_id
+        description: FK to patient.
+        tests:
+          - relationships:
+              to: ref('patient')
+              field: member_id
+              config: { severity: warn }
+      - name: ndc
+      - name: fill_date
+      - name: is_current
+        tests: [not_null]
+
+  - name: adjudication_event
+    description: >
+      Conformed adjudication event log, one row per adjudication_event_id.
+      Captures version transitions and paid_amount_delta per processing event.
+    columns:
+      - name: adjudication_sk
+        tests: [not_null, unique]
+      - name: adjudication_event_id
+        tests: [not_null, unique]
+      - name: claim_id
+        tests: [not_null]
+      - name: event_type
+        tests:
+          - accepted_values:
+              values: ['SUBMITTED', 'PAID', 'DENIED', 'ADJUSTED', 'REVERSED', 'VOIDED', 'PENDED']
+              config: { severity: warn }
+      - name: paid_amount_delta
+
+  - name: denial_event
+    description: >
+      Unified denial stream from header-level DENIED claims and adjudication
+      DENIED events, enriched with denial reason name/category from
+      ref_denial_reason.
+    columns:
+      - name: denial_event_sk
+        tests: [not_null, unique]
+      - name: claim_id
+        tests: [not_null]
+      - name: denial_reason_code
+        tests:
+          - relationships:
+              to: ref('ref_denial_reason')
+              field: denial_reason_code
+              config: { severity: warn }
+      - name: denial_source
+        tests:
+          - accepted_values: { values: ['CLAIM_HEADER', 'ADJUDICATION'] }
+      - name: denial_category

@@ -1,0 +1,49 @@
+# =============================================================================
+# snowflake-claims-platform :: snow CLI connection config (EXAMPLE / placeholder)
+# -----------------------------------------------------------------------------
+# Copy this to .snowflake/config.toml at the repo root (git-ignored) and fill in
+# your real account. The Makefile sets SNOWFLAKE_HOME=$(PWD)/.snowflake so the
+# Snowflake CLI (`snow`) reads connections from there.
+#
+#   mkdir -p .snowflake
+#   cp snowflake/connections.toml.example .snowflake/config.toml
+#   chmod 600 .snowflake/config.toml        # snow requires 0600 perms
+#   # then edit account/user/role/warehouse
+#
+# Auth options: externalbrowser (SSO, no secret — recommended for local dev),
+# key-pair (private_key_path, recommended for CI/headless), or password.
+# Data is SYNTHETIC — never load real CMS/Medicare/Medicaid/PHI.
+# =============================================================================
+
+default_connection_name = "my_example_connection"
+
+# Admin/bootstrap connection — ACCOUNTADMIN to run setup scripts 001-012.
+[connections.my_example_connection]
+account = "YOUR_ORG-YOUR_ACCOUNT"     # e.g. ABCDEFG-XY12345
+user = "YOUR_USER"
+authenticator = "externalbrowser"     # SSO; no secret stored
+role = "ACCOUNTADMIN"
+warehouse = "COMPUTE_WH"
+database = "PUBLIC"
+schema = "PUBLIC"
+
+# Platform connection — use after CLAIMS_DEV + roles exist.
+[connections.claims_dev]
+account = "YOUR_ORG-YOUR_ACCOUNT"
+user = "YOUR_USER"
+authenticator = "externalbrowser"
+role = "CLAIMS_TRANSFORMER"
+warehouse = "WH_CLAIMS_TRANSFORM"
+database = "CLAIMS_DEV"
+schema = "SILVER_CANONICAL"
+
+# --- Key-pair alternative (recommended for CI / headless) --------------------
+# [connections.claims_ci]
+# account = "YOUR_ORG-YOUR_ACCOUNT"
+# user = "SVC_DBT_CLAIMS"
+# authenticator = "SNOWFLAKE_JWT"
+# private_key_file = "/secure/keys/dbt_claims_rsa_key.p8"
+# role = "CLAIMS_CI"
+# warehouse = "WH_CLAIMS_CI"
+# database = "CLAIMS_DEV"
+# schema = "DBT_CI"

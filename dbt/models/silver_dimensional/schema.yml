@@ -1,0 +1,462 @@
+# =============================================================================
+# schema.yml
+# Layer: SILVER_DIMENSIONAL (star schema -- conformed dimensions, facts, bridges)
+#
+# Documentation + tests for the dimensional layer. Tests enforce:
+#   - unique + not_null on every surrogate key
+#   - relationships from facts to the dimensions they reference
+#   - accepted_values on flags / payer_type / claim_setting / adjustment_type
+#   - recency on fact_claim_line (data freshness)
+#   - reconciliation reference (header<->line totals)
+#   - no-duplicate-active-claim + non-overlapping-eligibility references
+#
+# NOTE: All data is SYNTHETIC. No PHI/PII. Dollar amounts, NPIs, member IDs are
+#       fabricated. Tests are calibrated for synthetic distributions.
+# =============================================================================
+version: 2
+
+models:
+
+  # ===========================================================================
+  # DIMENSIONS
+  # ===========================================================================
+  - name: dim_patient
+    description: >
+      Conformed member/patient dimension (SCD-light: one row per current member
+      version). Synthetic members only -- no PHI. Grain: one row per member.
+    columns:
+      - name: patient_sk
+        description: Surrogate key = hash(member_id). Stable across rebuilds.
+        tests: [unique, not_null]
+      - name: member_id
+        description: Natural key (synthetic member identifier).
+        tests: [not_null]
+      - name: age_band
+        description: Actuarial age band of the member.
+        tests:
+          - accepted_values:
+              values: ['0-17', '18-34', '35-49', '50-64', '65+', 'Unknown']
+      - name: gender
+        description: Synthetic gender code.
+      - name: state
+        description: Synthetic state of residence.
+      - name: zip3
+        description: De-identified 3-digit ZIP prefix.
+      - name: is_current
+        description: SCD-light current-record flag.
+
+  - name: dim_provider
+    description: >
+      Conformed provider dimension keyed on NPI, enriched with specialty/
+      provider-type from ref_provider_specialty. Grain: one row per provider.
+    columns:
+      - name: provider_sk
+        description: Surrogate key = hash(npi).
+        tests: [unique, not_null]
+      - name: npi
+        description: National Provider Identifier (synthetic).
+        tests: [not_null]
+      - name: specialty
+        description: Human-readable specialty.
+      - name: provider_type
+        description: Provider type rollup.
+
+  - name: dim_payer
+    description: >
+      Conformed payer dimension. payer_type is the governed top-level slicer.
+      Grain: one row per payer.
+    columns:
+      - name: payer_sk
+        description: Surrogate key = hash(payer_id).
+        tests: [unique, not_null]
+      - name: payer_id
+        description: Natural key.
+        tests: [not_null]
+      - name: payer_type
+        description: Conformed payer category.
+        tests:
+          - accepted_values:
+              values: ['Commercial', 'Medicare', 'Medicaid', 'Other']
+
+  - name: dim_plan
+    description: >
+      Conformed plan dimension with plan_type label and a payer_sk FK. Grain:
+      one row per plan.
+    columns:
+      - name: plan_sk
+        description: Surrogate key = hash(plan_id).
+        tests: [unique, not_null]
+      - name: plan_id
+        description: Natural key.
+        tests: [not_null]
+      - name: payer_sk
+        description: FK to dim_payer.
+        tests:
+          - relationships:
+              to: ref('dim_payer')
+              field: payer_sk
+      - name: plan_type_name
+        description: Human-readable plan type.
+
+  - name: dim_diagnosis
+    description: >
+      Diagnosis-code dimension (from ref_diagnosis_code) with clinical
+      condition-group rollup. Grain: one row per diagnosis code.
+    columns:
+      - name: diagnosis_sk
+        description: Surrogate key = hash(diagnosis_code).
+        tests: [unique, not_null]
+      - name: diagnosis_code
+        description: Diagnosis code (e.g. ICD-10-CM).
+        tests: [not_null]
+      - name: condition_group
+        description: Clinical condition group name.
+      - name: condition_group_sk
+        description: FK to dim_condition_group.
+        tests:
+          - relationships:
+              to: ref('dim_condition_group')
+              field: condition_group_sk
+
+  - name: dim_procedure
+    description: >
+      Procedure-code dimension (from ref_procedure_code) with category. Grain:
+      one row per procedure code.
+    columns:
+      - name: procedure_sk
+        description: Surrogate key = hash(procedure_code).
+        tests: [unique, not_null]
+      - name: procedure_code
+        description: Procedure code (e.g. CPT/HCPCS).
+        tests: [not_null]
+      - name: category
+        description: Procedure category rollup.
+
+  - name: dim_date
+    description: >
+      Conformed date dimension -- generated date spine (dbt_utils.date_spine)
+      covering 2018-2027. Grain: one row per calendar day. date_sk is yyyymmdd.
+    columns:
+      - name: date_sk
+        description: Integer surrogate yyyymmdd.
+        tests: [unique, not_null]
+      - name: date_day
+        description: Calendar date.
+        tests: [not_null]
+      - name: is_weekend
+        description: Saturday/Sunday flag.
+        tests:
+          - accepted_values:
+              values: [true, false]
+      - name: month_start
+        description: First day of the month for this date.
+
+  - name: dim_condition_group
+    description: >
+      Clinical condition-group dimension (from ref_condition_group). Grain: one
+      row per condition group.
+    columns:
+      - name: condition_group_sk
+        description: Surrogate key = hash(condition_group_code).
+        tests: [unique, not_null]
+      - name: code
+        description: Condition-group code.
+        tests: [not_null]
+      - name: name
+        description: Condition-group name.
+
+  # ===========================================================================
+  # FACTS
+  # ===========================================================================
+  - name: fact_claim_line
+    description: >
+      Transactional fact. GRAIN: one row per service line of the CURRENT valid
+      version of a claim -- one row per (claim_id, claim_line_id) for the claim
+      version flagged current by int_current_valid_claims. Reflects as-adjudicated
+      current financial truth; adjustment history lives in fact_claim_adjustment.
+      Measures are additive: charge_amount, allowed_amount, paid_amount,
+      patient_responsibility (line-allocated), units.
+    tests:
+      # Recency: synthetic loads should produce reasonably fresh service dates.
+      - dbt_utils.recency:
+          datepart: day
+          field: service_from_date
+          interval: 400
+      # Reconciliation reference: header<->line totals must tie out.
+      - assert_claim_header_line_totals_reconcile
+      # No duplicate active claim reference: each current claim line appears once.
+      - no_duplicate_active_claim
+    columns:
+      - name: fact_claim_line_sk
+        description: Surrogate key = hash(claim_id, claim_line_id, claim_version).
+        tests: [unique, not_null]
+      - name: patient_sk
+        description: FK to dim_patient.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_patient')
+              field: patient_sk
+      - name: provider_sk
+        description: FK to dim_provider (rendering provider).
+        tests:
+          - relationships:
+              to: ref('dim_provider')
+              field: provider_sk
+      - name: payer_sk
+        description: FK to dim_payer.
+        tests:
+          - relationships:
+              to: ref('dim_payer')
+              field: payer_sk
+      - name: plan_sk
+        description: FK to dim_plan.
+        tests:
+          - relationships:
+              to: ref('dim_plan')
+              field: plan_sk
+      - name: date_sk
+        description: FK to dim_date (service_from_date).
+        tests:
+          - relationships:
+              to: ref('dim_date')
+              field: date_sk
+      - name: procedure_sk
+        description: FK to dim_procedure.
+      - name: claim_id
+        description: Retained natural key.
+        tests: [not_null]
+      - name: claim_line_id
+        description: Retained natural key.
+        tests: [not_null]
+      - name: claim_version
+        description: Retained natural key (current version).
+      - name: charge_amount
+        description: Line charge (additive).
+      - name: allowed_amount
+        description: Line allowed (additive).
+      - name: paid_amount
+        description: Line paid (additive).
+      - name: patient_responsibility
+        description: Line-allocated patient responsibility (additive).
+      - name: units
+        description: Service units (additive).
+      - name: claim_setting
+        description: Care setting rollup.
+        tests:
+          - accepted_values:
+              values: ['Inpatient', 'Outpatient', 'Professional', 'Facility', 'Pharmacy', 'Other']
+      - name: payer_type
+        description: (Joined slicer where present.)
+      - name: denial_flag
+        description: True if a denial event exists for the line.
+        tests:
+          - accepted_values:
+              values: [true, false]
+      - name: adjustment_flag
+        description: True if the claim was adjusted.
+        tests:
+          - accepted_values:
+              values: [true, false]
+      - name: reversal_flag
+        description: True if the claim was reversed.
+        tests:
+          - accepted_values:
+              values: [true, false]
+
+  - name: fact_pharmacy_claim
+    description: >
+      Transactional fact. GRAIN: one row per pharmacy (Rx) claim / fill event.
+      Measures: charge_amount, allowed_amount, paid_amount, patient_pay,
+      days_supply, quantity.
+    columns:
+      - name: fact_pharmacy_claim_sk
+        description: Surrogate key = hash(pharmacy_claim_id).
+        tests: [unique, not_null]
+      - name: patient_sk
+        description: FK to dim_patient.
+        tests:
+          - relationships:
+              to: ref('dim_patient')
+              field: patient_sk
+      - name: provider_sk
+        description: FK to dim_provider (prescriber).
+      - name: pharmacy_provider_sk
+        description: FK to dim_provider (dispensing pharmacy).
+      - name: plan_sk
+        description: FK to dim_plan.
+        tests:
+          - relationships:
+              to: ref('dim_plan')
+              field: plan_sk
+      - name: date_sk
+        description: FK to dim_date (fill_date).
+        tests:
+          - relationships:
+              to: ref('dim_date')
+              field: date_sk
+      - name: pharmacy_claim_id
+        description: Retained natural key.
+        tests: [not_null]
+      - name: days_supply
+        description: Days supply (additive).
+      - name: quantity
+        description: Quantity dispensed (additive).
+
+  - name: fact_eligibility_month
+    description: >
+      Coverage fact. GRAIN: one row per (member, payer, plan, coverage month) --
+      eligibility spans exploded to months via dim_date. member_month_flag = 1.
+      This is the member-months / PMPM denominator.
+    tests:
+      # Reference to the upstream non-overlapping eligibility guarantee.
+      - non_overlapping_eligibility
+    columns:
+      - name: fact_eligibility_month_sk
+        description: Surrogate key = hash(member_id, payer_id, plan_id, month_start).
+        tests: [unique, not_null]
+      - name: patient_sk
+        description: FK to dim_patient.
+        tests:
+          - relationships:
+              to: ref('dim_patient')
+              field: patient_sk
+      - name: payer_sk
+        description: FK to dim_payer.
+        tests:
+          - relationships:
+              to: ref('dim_payer')
+              field: payer_sk
+      - name: plan_sk
+        description: FK to dim_plan.
+        tests:
+          - relationships:
+              to: ref('dim_plan')
+              field: plan_sk
+      - name: date_sk
+        description: FK to dim_date (month_start).
+        tests:
+          - relationships:
+              to: ref('dim_date')
+              field: date_sk
+      - name: member_month_flag
+        description: Always 1; SUM gives member months.
+        tests:
+          - accepted_values:
+              values: [1]
+
+  - name: fact_provider_monthly_utilization
+    description: >
+      Aggregate fact. GRAIN: one row per (rendering provider, service month).
+      claim_count, distinct_member_count, total_paid/allowed/charge.
+      distinct_member_count is semi-additive (do not sum across months).
+    columns:
+      - name: fact_provider_monthly_utilization_sk
+        description: Surrogate key = hash(provider_sk, month).
+        tests: [unique, not_null]
+      - name: provider_sk
+        description: FK to dim_provider.
+        tests:
+          - relationships:
+              to: ref('dim_provider')
+              field: provider_sk
+      - name: date_sk
+        description: FK to dim_date (month_start).
+        tests:
+          - relationships:
+              to: ref('dim_date')
+              field: date_sk
+      - name: total_paid
+        description: Sum of line paid for the provider-month.
+
+  - name: fact_claim_adjustment
+    description: >
+      Event fact. GRAIN: one row per claim lifecycle event (adjustment / void /
+      reversal). Explains how paid amounts moved. Measure paid_amount_delta is
+      signed (new paid - prior paid).
+    columns:
+      - name: fact_claim_adjustment_sk
+        description: Surrogate key = hash(claim_id, claim_version, event_seq).
+        tests: [unique, not_null]
+      - name: date_sk
+        description: FK to dim_date (event_ts).
+        tests:
+          - relationships:
+              to: ref('dim_date')
+              field: date_sk
+      - name: payer_sk
+        description: FK to dim_payer.
+        tests:
+          - relationships:
+              to: ref('dim_payer')
+              field: payer_sk
+      - name: claim_id
+        description: Retained natural key.
+        tests: [not_null]
+      - name: adjustment_type
+        description: Normalized event type.
+        tests:
+          - accepted_values:
+              values: ['ADJUSTMENT', 'VOID', 'REVERSAL', 'OTHER']
+      - name: reversal_flag
+        tests:
+          - accepted_values:
+              values: [true, false]
+      - name: void_flag
+        tests:
+          - accepted_values:
+              values: [true, false]
+      - name: paid_amount_delta
+        description: Signed paid-amount change vs prior version.
+
+  # ===========================================================================
+  # BRIDGES
+  # ===========================================================================
+  - name: bridge_claim_diagnosis
+    description: >
+      Many-to-many bridge claim_header <-> diagnosis. GRAIN: one row per
+      (claim, diagnosis position) for the current claim version.
+    columns:
+      - name: bridge_claim_diagnosis_sk
+        description: Surrogate key.
+        tests: [unique, not_null]
+      - name: claim_header_sk
+        description: FK to claim header (matches fact_claim_line.claim_header_sk).
+        tests: [not_null]
+      - name: diagnosis_sk
+        description: FK to dim_diagnosis.
+        tests:
+          - relationships:
+              to: ref('dim_diagnosis')
+              field: diagnosis_sk
+      - name: diagnosis_position
+        description: Ordinal position of the diagnosis on the claim.
+      - name: is_primary
+        description: True for the principal (position 1) diagnosis.
+        tests:
+          - accepted_values:
+              values: [true, false]
+      - name: present_on_admission
+        description: POA indicator.
+
+  - name: bridge_claim_procedure
+    description: >
+      Many-to-many bridge claim_header <-> procedure. GRAIN: one row per
+      (claim, procedure position) for the current claim version.
+    columns:
+      - name: bridge_claim_procedure_sk
+        description: Surrogate key.
+        tests: [unique, not_null]
+      - name: claim_header_sk
+        description: FK to claim header.
+        tests: [not_null]
+      - name: procedure_sk
+        description: FK to dim_procedure.
+        tests:
+          - relationships:
+              to: ref('dim_procedure')
+              field: procedure_sk
+      - name: procedure_position
+        description: Ordinal position of the procedure on the claim.
+      - name: procedure_date
+        description: Date the procedure was performed.

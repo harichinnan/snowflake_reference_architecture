@@ -1,0 +1,270 @@
+# =============================================================================
+# control/schema.yml
+# Documentation + tests for the CONTROL (Data Control Model) projection models.
+#
+# These models make the DCM queryable. Each is tied to one (or more) of the ten
+# DCM domains A-J: A Source, B Batch, C Watermark, D Idempotency, E Data Quality,
+# F Quarantine, G Reprocessing, H Lineage, I SLA/Freshness, J Semantic.
+# All materialize as tables in the CONTROL schema (see dbt_project.yml).
+# =============================================================================
+version: 2
+
+models:
+  # ---------------------------------------------------------------------------
+  - name: control_data_contract
+    description: >
+      DCM Domain A (Source). One row per (source_system, object_name) showing the
+      current data contract: required_fields, primary_business_keys,
+      expected_grain, and is_current (latest effective schema version).
+    columns:
+      - name: source_system
+        description: "Originating source system. DCM A."
+        data_tests:
+          - not_null
+      - name: object_name
+        description: "Contracted object (landing table / event). DCM A."
+        data_tests:
+          - not_null
+      - name: schema_version
+        description: "Schema version of this contract row."
+      - name: required_fields
+        description: "Mandatory fields the source must supply. DCM A."
+      - name: primary_business_keys
+        description: "Natural-key fields defining grain/identity. DCM A/D."
+      - name: expected_grain
+        description: "Declared grain of the object. DCM A."
+      - name: is_current
+        description: "True for the active/effective contract version."
+        data_tests:
+          - not_null
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - source_system
+            - object_name
+            - schema_version
+
+  # ---------------------------------------------------------------------------
+  - name: control_pipeline_watermark_status
+    description: >
+      DCM Domain C (Watermark), with B (Batch) context. Per-pipeline view of
+      last/prior successful watermark, the lookback_start_watermark the next
+      incremental will scan from, lookback_days, late_arrival_days,
+      max_watermark_seen, watermark lag, and latest run status.
+    columns:
+      - name: pipeline_name
+        description: "Pipeline identifier (matches bronze post-hook pipeline_name). DCM C."
+        data_tests:
+          - not_null
+          - unique
+      - name: last_successful_watermark
+        description: "Most recent committed watermark. DCM C."
+      - name: prior_successful_watermark
+        description: "Previous committed watermark. DCM C."
+      - name: lookback_start_watermark
+        description: "last_successful_watermark - lookback_days; next-run lower bound. DCM C."
+      - name: lookback_days
+        description: "Configured lookback window in days. DCM C."
+      - name: late_arrival_days
+        description: "Configured late-arrival grace in days. DCM C/I."
+      - name: max_watermark_seen
+        description: "Freshest event timestamp observed. DCM C."
+      - name: watermark_lag_seconds
+        description: "Seconds between max_watermark_seen and last_successful_watermark."
+      - name: latest_run_status
+        description: "Status of the most recent pipeline run. DCM B."
+
+  # ---------------------------------------------------------------------------
+  - name: control_late_arrival_summary
+    description: >
+      DCM Domain C (Watermark) / I (SLA). From the bronze models, counts late
+      arrivals (business_event_ts materially before source_extract_ts/ingest_ts)
+      grouped by source_system, source_model, and affected_business_month --
+      showing how many late records were captured and which prior periods they
+      retroactively affect. Ties directly to the incremental lookback window.
+    columns:
+      - name: source_system
+        description: "Originating source system. DCM A."
+        data_tests:
+          - not_null
+      - name: source_model
+        description: "Bronze event model the late arrivals came from."
+        data_tests:
+          - not_null
+      - name: affected_business_month
+        description: "Business month the late records retroactively affect. DCM C."
+        data_tests:
+          - not_null
+      - name: total_records
+        description: "Records in this source/model/month."
+      - name: late_arrival_count
+        description: "Count of records flagged late. DCM C/I."
+        data_tests:
+          - not_null
+      - name: late_arrival_ratio
+        description: "late_arrival_count / total_records."
+      - name: max_extract_lag_days
+        description: "Max days between event and source extract for late records."
+      - name: late_threshold_days
+        description: "Threshold used to classify a record as late."
+
+  # ---------------------------------------------------------------------------
+  - name: control_reprocessing_ledger
+    description: >
+      DCM Domain G (Reprocessing). Surfaces every backfill/replay: original vs.
+      reprocess batch, reason, scope, requested_by/approved_by, status, row
+      counts before/after, and validation_status.
+    columns:
+      - name: reprocessing_id
+        description: "Reprocessing request identifier. DCM G."
+        data_tests:
+          - not_null
+          - unique
+      - name: pipeline_name
+        description: "Pipeline being reprocessed. DCM G."
+      - name: original_batch_id
+        description: "Batch being replaced. DCM B/G."
+      - name: reprocess_batch_id
+        description: "Replacement batch. DCM B/G."
+      - name: reason
+        description: "Why the reprocess was requested."
+      - name: scope
+        description: "Period / key set affected."
+      - name: requested_by
+        description: "Requester identity. DCM G."
+      - name: approved_by
+        description: "Approver identity. DCM G."
+      - name: status
+        description: "Lifecycle status of the reprocess."
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['REQUESTED', 'APPROVED', 'RUNNING', 'COMPLETED', 'FAILED', 'REJECTED']
+      - name: rows_before
+        description: "Row count prior to reprocess."
+      - name: rows_after
+        description: "Row count after reprocess."
+      - name: rows_delta
+        description: "rows_after - rows_before."
+      - name: validation_status
+        description: "Post-run DQ gate result. DCM E/G."
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['PASS', 'FAIL', 'PENDING']
+
+  # ---------------------------------------------------------------------------
+  - name: control_data_quality_scorecard
+    description: >
+      DCM Domain E (Data Quality). Aggregates AUDIT.DATA_QUALITY_RESULT by
+      model_name/test_name/severity/status with latest run, pass/fail counts,
+      latest failed_row_count, and a regressing/improving trend vs. the prior run.
+    columns:
+      - name: model_name
+        description: "Model the test ran against. DCM E."
+        data_tests:
+          - not_null
+      - name: test_name
+        description: "Test identifier. DCM E."
+        data_tests:
+          - not_null
+      - name: severity
+        description: "Test severity (WARN/ERROR)."
+      - name: latest_status
+        description: "Status of the most recent run of this test."
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['PASS', 'FAIL']
+      - name: latest_failed_row_count
+        description: "Failed rows in the latest run. DCM E."
+      - name: pass_count
+        description: "Historical count of passing runs."
+      - name: fail_count
+        description: "Historical count of failing runs."
+      - name: pass_rate
+        description: "pass_count / total_runs."
+      - name: trend_direction
+        description: "NEW / IMPROVING / REGRESSING / STABLE vs. prior run."
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['NEW', 'IMPROVING', 'REGRESSING', 'STABLE']
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - model_name
+            - test_name
+
+  # ---------------------------------------------------------------------------
+  - name: control_freshness_status
+    description: >
+      DCM Domain I (SLA/Freshness). Per-pipeline freshness from latest ingest_ts
+      vs source_extract_ts vs max_allowed_lag_hours (PIPELINE_CONFIG /
+      PIPELINE_FRESHNESS_STATUS), outputting freshness_status (FRESH/STALE/BREACH)
+      and alert_severity.
+    columns:
+      - name: pipeline_name
+        description: "Pipeline identifier. DCM I."
+        data_tests:
+          - not_null
+          - unique
+      - name: latest_ingest_ts
+        description: "Most recent ingest timestamp observed. DCM I."
+      - name: latest_extract_ts
+        description: "Most recent source extract timestamp observed. DCM I."
+      - name: max_allowed_lag_hours
+        description: "Configured freshness SLA in hours. DCM I."
+      - name: ingest_lag_hours
+        description: "Hours the data is behind now."
+      - name: load_latency_hours
+        description: "Hours between source extract and ingest."
+      - name: freshness_status
+        description: "FRESH / STALE / BREACH. DCM I."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['FRESH', 'STALE', 'BREACH']
+      - name: alert_severity
+        description: "NONE / WARN / CRITICAL alert level. DCM I."
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['NONE', 'WARN', 'CRITICAL']
+
+  # ---------------------------------------------------------------------------
+  - name: control_semantic_metric_registry
+    description: >
+      DCM Domain J (Semantic). Surfaces the certified metric catalog: metric_name,
+      business_definition, calculation_sql, grain, owner, certified_status,
+      source_model, allowed_dimensions, default_filters. Single source of truth
+      for Cortex Analyst / BI metric definitions.
+    columns:
+      - name: metric_name
+        description: "Certified metric name. DCM J."
+        data_tests:
+          - not_null
+          - unique
+      - name: business_definition
+        description: "Plain-language meaning of the metric. DCM J."
+      - name: calculation_sql
+        description: "Canonical SQL expression. DCM J."
+      - name: grain
+        description: "Grain the metric is defined at."
+      - name: owner
+        description: "Accountable owner/steward."
+      - name: certified_status
+        description: "Certification state of the metric."
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: ['CERTIFIED', 'DRAFT', 'DEPRECATED']
+      - name: source_model
+        description: "Backing GOLD/SEMANTIC model."
+      - name: allowed_dimensions
+        description: "Valid slicing dimensions. DCM J."
+      - name: default_filters
+        description: "Filters always applied to the metric. DCM J."
+      - name: is_certified
+        description: "Convenience boolean derived from certified_status."

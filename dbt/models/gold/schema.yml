@@ -1,0 +1,241 @@
+# =============================================================================
+# schema.yml
+# Layer: GOLD (CERTIFIED semantic data products)
+#
+# These models are the CERTIFIED business surface and the access layer for the
+# Snowflake-managed MCP server and Cortex Analyst. Each model below documents
+# its GRAIN and the BUSINESS QUESTION it answers. Metric definitions here are
+# the certified ones registered in CONTROL.SEMANTIC_METRIC_REGISTRY /
+# SEMANTIC.METRIC_REGISTRY.
+#
+# Tests enforce: not_null on keys, certified metric sanity (paid >= 0 in
+# aggregate, PMPM not null where member months exist), and relationships.
+#
+# SYNTHETIC DATA -- certified definitions over fabricated values. No PHI/PII.
+# =============================================================================
+version: 2
+
+# -----------------------------------------------------------------------------
+# Sources -- AUDIT operational tables (created by snowflake/setup/009, not dbt).
+# Referenced by gold_data_quality_summary. The `audit` source is defined once,
+# centrally, in models/sources.yml (defining it again here caused a duplicate
+# source error), so it is intentionally not redeclared in this file.
+# -----------------------------------------------------------------------------
+
+models:
+
+  - name: gold_claims_semantic_base
+    description: >
+      CERTIFIED wide claims base -- one row per claim service line, conformed
+      against all common dimensions (patient, provider, payer, plan, date,
+      procedure, and PRIMARY diagnosis -> condition group). Backbone of the
+      Cortex Analyst semantic view and the MCP access surface.
+      BUSINESS QUESTION: "Slice claims paid/allowed/denials by any common
+      dimension." GRAIN: claim service line.
+    columns:
+      - name: fact_claim_line_sk
+        description: Grain key (one per claim line).
+        tests: [not_null]
+      - name: claim_id
+        tests: [not_null]
+      - name: paid_amount
+        description: Certified paid amount (additive).
+        tests: [not_null]
+      - name: payer_type
+        tests:
+          - accepted_values:
+              values: ['Commercial', 'Medicare', 'Medicaid', 'Other']
+      - name: claim_setting
+        tests:
+          - accepted_values:
+              values: ['Inpatient', 'Outpatient', 'Professional', 'Facility', 'Pharmacy', 'Other']
+      - name: condition_group
+        description: Primary-diagnosis condition group.
+      - name: provider_specialty
+        description: Rendering provider specialty.
+      - name: denial_flag
+        tests:
+          - accepted_values:
+              values: [true, false]
+
+  - name: gold_member_months
+    description: >
+      CERTIFIED PMPM denominator. BUSINESS QUESTION: "Member months / distinct
+      members by payer, plan, month." GRAIN: (payer, plan, month).
+    columns:
+      - name: payer_sk
+        tests: [not_null]
+      - name: plan_sk
+        tests: [not_null]
+      - name: month_start
+        tests: [not_null]
+      - name: member_months
+        description: Certified member-month count (PMPM denominator).
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: distinct_members
+        description: Distinct members covered in the month (semi-additive).
+
+  - name: gold_provider_utilization
+    description: >
+      CERTIFIED provider utilization. BUSINESS QUESTION: "Which providers /
+      specialties / states drive utilization and cost, with per-member rates?"
+      GRAIN: (provider, month).
+    columns:
+      - name: provider_sk
+        tests: [not_null]
+      - name: month_start
+        tests: [not_null]
+      - name: total_paid
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: paid_per_member
+        description: total_paid / distinct_members.
+
+  - name: gold_condition_cost_summary
+    description: >
+      CERTIFIED cost-by-condition product. BUSINESS QUESTIONS: "How many UNIQUE
+      members have diabetes?", "Cost per member by condition?", "Top procedures
+      for a condition?" GRAIN: (condition_group, month).
+    columns:
+      - name: condition_group
+        tests: [not_null]
+      - name: claim_month
+        tests: [not_null]
+      - name: distinct_members_with_condition
+        description: Unique members attributed to the condition (answers "unique members with diabetes").
+        tests: [not_null]
+      - name: total_paid
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: paid_per_member
+        description: total_paid / distinct members.
+      - name: top_procedures
+        description: Array of top-5 procedure categories by paid for the condition-month.
+
+  - name: gold_payer_plan_summary
+    description: >
+      CERTIFIED payer/plan P&L + PMPM. BUSINESS QUESTION: "Paid/allowed/charge,
+      PMPM, and denial rate by payer, plan, month." GRAIN: (payer, plan, month).
+      PMPM = certified paid / member_months (from gold_member_months).
+    columns:
+      - name: payer_sk
+        tests: [not_null]
+      - name: plan_sk
+        tests: [not_null]
+      - name: month_start
+        tests: [not_null]
+      - name: total_paid
+        description: Certified paid (additive).
+        tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+      - name: member_months
+        description: Certified PMPM denominator joined from gold_member_months.
+      - name: pmpm
+        description: >
+          CERTIFIED PMPM = total_paid / member_months. NULL only where member
+          months = 0. Sanity test: when member_months > 0, pmpm must be populated.
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+              config:
+                where: "member_months > 0"
+      - name: denial_rate
+        description: denied_claims / claim_count.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
+              inclusive: true
+
+  - name: gold_cohort_claims
+    description: >
+      CERTIFIED cohort grain. BUSINESS QUESTION: "Member cohorts by condition /
+      age band / payer with claim metrics" (filter to define the cohort).
+      GRAIN: (member, condition_group, age_band, payer_type, month).
+    columns:
+      - name: member_id
+        tests: [not_null]
+      - name: condition_group
+        tests: [not_null]
+      - name: age_band
+        tests:
+          - accepted_values:
+              values: ['0-17', '18-34', '35-49', '50-64', '65+', 'Unknown']
+      - name: payer_type
+        tests:
+          - accepted_values:
+              values: ['Commercial', 'Medicare', 'Medicaid', 'Other']
+      - name: total_paid
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+
+  - name: gold_late_arrival_impact
+    description: >
+      CERTIFIED late-arrival explainability. BUSINESS QUESTION: "Why did March
+      paid change after the first load?" Splits paid into original vs late vs
+      restated by impacted_period. GRAIN: impacted service month.
+    columns:
+      - name: impacted_period
+        tests: [unique, not_null]
+      - name: original_paid
+        description: Paid excluding late-arriving claims (what the month first showed).
+      - name: late_paid
+        description: Paid added by late-arriving claims.
+      - name: restated_paid
+        description: Current certified total (= original_paid + late_paid).
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              inclusive: true
+
+  - name: gold_claim_denial_summary
+    description: >
+      CERTIFIED denial product. BUSINESS QUESTION: "Denial rate by payer/plan/
+      status/reason and top denial reasons." GRAIN: (payer, plan, claim_status,
+      denial_reason, month).
+    columns:
+      - name: payer_sk
+        tests: [not_null]
+      - name: denial_reason
+        description: Human-readable denial reason (NONE / Not Denied for clean claims).
+      - name: total_claims
+        tests: [not_null]
+      - name: denial_rate
+        description: Certified denial rate = denied_claims / total_claims.
+        tests:
+          - dbt_utils.accepted_range:
+              min_value: 0
+              max_value: 1
+              inclusive: true
+
+  - name: gold_data_quality_summary
+    description: >
+      CERTIFIED operational health product. BUSINESS QUESTION: "Which DQ checks
+      failed most recently, and how much data is quarantined?" Latest DQ
+      pass/fail by model/test + quarantine counts by reason/status + freshness.
+      GRAIN: (summary_type, model_name, test_name | quarantine_reason).
+    columns:
+      - name: summary_type
+        description: DQ_RESULT or QUARANTINE row.
+        tests:
+          - accepted_values:
+              values: ['DQ_RESULT', 'QUARANTINE']
+      - name: model_name
+        tests: [not_null]
+      - name: dq_status
+        description: PASS/FAIL/WARN for DQ rows; OPEN/RESOLVED/REPROCESSED for quarantine.
+      - name: last_evaluated_at
+        description: Most recent evaluation/quarantine timestamp (freshness).

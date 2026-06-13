@@ -1,0 +1,184 @@
+# =============================================================================
+# .github/workflows/terraform_plan.yml
+# -----------------------------------------------------------------------------
+# Terraform PLAN-only CI for the Snowflake platform layer (terraform/**).
+#
+# This workflow is intentionally READ-ONLY: it formats, validates, and PLANS
+# against the dev environment, then posts the plan as a PR summary. It NEVER
+# runs `terraform apply`. Apply is a deliberate, MANUAL/GATED action performed
+# from a separate apply workflow or locally by an operator with approval --
+# typically behind a GitHub Environment with required reviewers and using the
+# remote backend's state locking (see providers.tf hardening notes).
+#
+# Auth: key-pair (SNOWFLAKE_JWT) preferred. The Snowflake provider reads
+# file(var.snowflake_private_key_path); we decode the base64 key secret to a
+# file and pass its path via TF_VAR_snowflake_private_key_path. All sensitive
+# inputs are supplied as TF_VAR_* env from secrets, never committed tfvars.
+# =============================================================================
+
+name: terraform plan
+
+on:
+  pull_request:
+    paths:
+      - "terraform/**"
+
+concurrency:
+  group: terraform-plan-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write # to post the plan summary as a sticky comment (optional)
+
+env:
+  TF_DIR: terraform
+  # Match providers.tf required_version (>= 1.5.0). Pin to keep state format stable.
+  TERRAFORM_VERSION: "1.9.5"
+  # ---- Snowflake provider inputs (TF_VAR_*) from secrets --------------------
+  TF_VAR_snowflake_account_name: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+  TF_VAR_snowflake_organization_name: ${{ secrets.SNOWFLAKE_ORGANIZATION }}
+  TF_VAR_snowflake_user: ${{ secrets.SNOWFLAKE_USER }}
+  TF_VAR_snowflake_role: ${{ secrets.SNOWFLAKE_ROLE }}
+  TF_VAR_snowflake_private_key_passphrase: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          # Keep the wrapper so we can capture stdout for the PR summary.
+          terraform_wrapper: true
+
+      # -----------------------------------------------------------------------
+      # Key-pair material: the provider does file(var.snowflake_private_key_path),
+      # so we materialize the key on disk and point the var at it.
+      # -----------------------------------------------------------------------
+      - name: Write Snowflake private key (key-pair auth)
+        if: ${{ secrets.SNOWFLAKE_PRIVATE_KEY != '' }}
+        run: |
+          mkdir -p "${HOME}/.ssh"
+          echo "${{ secrets.SNOWFLAKE_PRIVATE_KEY }}" | base64 --decode > "${HOME}/.ssh/snowflake_tf_key.p8"
+          chmod 600 "${HOME}/.ssh/snowflake_tf_key.p8"
+          echo "TF_VAR_snowflake_private_key_path=${HOME}/.ssh/snowflake_tf_key.p8" >> "$GITHUB_ENV"
+
+      # Formatting gate: fail if any file isn't canonically formatted.
+      - name: terraform fmt -check
+        run: terraform fmt -check -recursive
+
+      # -----------------------------------------------------------------------
+      # Init. This DEMO repo uses the default LOCAL backend (no backend block in
+      # providers.tf), so there is no remote state to fetch in CI -- a PR-time
+      # plan against ephemeral local state would be meaningless/empty.
+      #
+      # We therefore init with -backend=false, which configures providers and
+      # downloads modules WITHOUT a backend, so `validate` and a plan can still
+      # exercise the config. NOTE: with -backend=false `terraform plan` cannot
+      # read real state, so the plan reflects "from empty state" -- useful for
+      # catching config/provider errors, not for a true diff.
+      #
+      # PRODUCTION: enable the remote backend in providers.tf and replace this
+      # with `terraform init -backend-config=...` so the plan diffs real state.
+      # -----------------------------------------------------------------------
+      - name: terraform init (no backend for PR plan)
+        run: terraform init -backend=false -input=false
+
+      - name: terraform validate
+        run: terraform validate -no-color
+
+      # -----------------------------------------------------------------------
+      # Plan against the dev environment tfvars. -lock=false because with
+      # -backend=false there is no remote lock to acquire. Output is captured by
+      # the wrapper and surfaced in the next step. With a remote backend, drop
+      # -backend=false above, remove -lock=false, and add a -out=plan.tfplan
+      # artifact you can hand to a gated apply job.
+      # -----------------------------------------------------------------------
+      - name: terraform plan (dev)
+        id: plan
+        continue-on-error: true
+        run: |
+          terraform plan \
+            -no-color \
+            -input=false \
+            -lock=false \
+            -var-file=environments/dev.tfvars
+
+      # -----------------------------------------------------------------------
+      # Post the plan to the job summary (always visible) and a sticky PR comment.
+      # -----------------------------------------------------------------------
+      - name: Publish plan to job summary
+        if: ${{ always() }}
+        run: |
+          {
+            echo "## Terraform Plan (dev)"
+            echo ""
+            echo "**fmt/validate/plan exit:** \`${{ steps.plan.outcome }}\`"
+            echo ""
+            echo '```hcl'
+            echo "${{ steps.plan.outputs.stdout }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comment plan on PR
+        if: ${{ always() && github.event_name == 'pull_request' }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const outcome = `${{ steps.plan.outcome }}`;
+            const plan = `${{ steps.plan.outputs.stdout }}`;
+            const truncated = plan.length > 60000
+              ? plan.slice(0, 60000) + "\n\n... (truncated, see job summary)"
+              : plan;
+            const body = [
+              "### Terraform Plan (dev)",
+              "",
+              `**plan exit:** \`${outcome}\``,
+              "",
+              "<details><summary>Show plan</summary>",
+              "",
+              "```hcl",
+              truncated,
+              "```",
+              "</details>",
+              "",
+              "_Apply is manual/gated. This PR runs plan only._",
+            ].join("\n");
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const marker = "### Terraform Plan (dev)";
+            const existing = comments.find(c => c.body && c.body.startsWith(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      # Make the job red if the plan itself errored (we used continue-on-error
+      # above only so we could still post the summary/comment).
+      - name: Fail if plan errored
+        if: ${{ steps.plan.outcome == 'failure' }}
+        run: |
+          echo "terraform plan failed; see summary/comment above." >&2
+          exit 1

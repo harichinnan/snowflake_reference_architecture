@@ -1,0 +1,1114 @@
+# =============================================================================
+# Cortex Analyst semantic model :: snowflake-claims-platform
+# -----------------------------------------------------------------------------
+# Text-to-SQL semantic model for Snowflake Cortex Analyst.
+#
+# SYNTHETIC DATA: every table, key, NPI, code and dollar amount below is
+# machine-generated. This is NOT real CMS / Medicare / Medicaid / TAF / RIF data
+# and contains NO PHI/PII. All numbers are illustrative only.
+#
+# Backing objects: CLAIMS_DEV/CLAIMS_PROD .GOLD.* and .SILVER_DIMENSIONAL.*.
+# This model reads ONLY certified GOLD products + the eligibility denominator —
+# never RAW/BRONZE. Column names match the dbt models exactly. Metric math is
+# kept identical to:
+#   - SEMANTIC.CLAIMS_SEMANTIC_VIEW  (semantic_view_claims.sql)
+#   - SEMANTIC.METRIC_REGISTRY       (metric_registry_seed.sql)
+#
+# Spec: Cortex Analyst semantic model — tables[].{base_table, primary_key,
+#   dimensions, time_dimensions, measures, filters}, relationships[],
+#   metrics[] (named/verified measures), verified_queries[], custom_instructions.
+# `database` defaults to CLAIMS_PROD; edit to CLAIMS_DEV for the dev deploy.
+# =============================================================================
+
+name: claims_semantic_model
+description: >-
+  Governed semantic model for the synthetic healthcare claims platform. Answers
+  questions about paid/allowed/charge amounts, patient responsibility, PMPM,
+  member months, denial rate, claims volume, provider utilization, condition
+  cost, late-arriving claim impact, and adjustment/reversal activity. SYNTHETIC
+  data — not real CMS/Medicaid/PHI. Prefer the certified named metrics over
+  ad-hoc aggregations.
+
+# -----------------------------------------------------------------------------
+# LOGICAL TABLES
+# -----------------------------------------------------------------------------
+tables:
+
+  # ===========================================================================
+  # PRIMARY FACT — claim-line grain, denormalized for self-serve analytics.
+  # Source: GOLD.gold_claims_semantic_base (one row per claim service line).
+  # ===========================================================================
+  - name: claim_line
+    description: >-
+      Primary claims fact at the claim-LINE grain (one row per service line of
+      the CURRENT valid version of a claim), denormalized with payer, plan,
+      provider, condition group, member, procedure and date attributes. Money +
+      units are line-additive. SUM(line paid) rolls up to header paid. SYNTHETIC.
+    base_table:
+      database: CLAIMS_PROD
+      schema: GOLD
+      table: GOLD_CLAIMS_SEMANTIC_BASE
+    primary_key:
+      columns:
+        - FACT_CLAIM_LINE_SK
+
+    dimensions:
+      - name: fact_claim_line_sk
+        expr: FACT_CLAIM_LINE_SK
+        data_type: TEXT
+        description: Grain key — surrogate key of the claim service line (this row).
+        synonyms: [line key, line id, claim line key]
+        unique: true
+      - name: claim_id
+        expr: CLAIM_ID
+        data_type: TEXT
+        description: Natural key of the claim (header). A claim has 1..N lines.
+        synonyms: [claim, claim number, claim_number]
+        unique: false
+      - name: claim_line_id
+        expr: CLAIM_LINE_ID
+        data_type: TEXT
+        description: Natural line identifier within the claim.
+        synonyms: [line, service line, line number]
+      - name: claim_version
+        expr: CLAIM_VERSION
+        data_type: NUMBER
+        description: Version of the claim this current row reflects (post-adjustment).
+        synonyms: [version, claim version]
+      - name: claim_header_sk
+        expr: CLAIM_HEADER_SK
+        data_type: TEXT
+        description: Surrogate key of the claim header (one per claim_id).
+        synonyms: [header key, claim header]
+      - name: claim_status
+        expr: CLAIM_STATUS
+        data_type: TEXT
+        description: Adjudication status of the claim (paid / denied / pending, synthetic codes).
+        synonyms: [status, adjudication status, claim state]
+      - name: claim_type
+        expr: CLAIM_TYPE
+        data_type: TEXT
+        description: Source claim type (professional / institutional / pharmacy, synthetic).
+        synonyms: [type of claim, professional or institutional]
+      - name: claim_setting
+        expr: CLAIM_SETTING
+        data_type: TEXT
+        description: Care setting rollup derived from claim_type.
+        synonyms: [setting, place of care]
+        sample_values: [Inpatient, Outpatient, Professional, Facility, Pharmacy, Other]
+      - name: payer_sk
+        expr: PAYER_SK
+        data_type: TEXT
+        description: Payer surrogate key. JOIN key to payer/plan summaries.
+        synonyms: [payer key]
+      - name: payer_name
+        expr: PAYER_NAME
+        data_type: TEXT
+        description: Synthetic payer display name.
+        synonyms: [payer, insurer, carrier, insurer name]
+      - name: payer_type
+        expr: PAYER_TYPE
+        data_type: TEXT
+        description: Payer line of business (synthetic).
+        synonyms: [line of business, payer category]
+        sample_values: [Commercial, Medicare, Medicaid, Other]
+      - name: plan_sk
+        expr: PLAN_SK
+        data_type: TEXT
+        description: Plan surrogate key. JOIN key to plan/PMPM summaries.
+        synonyms: [plan key]
+      - name: plan_type
+        expr: PLAN_TYPE
+        data_type: TEXT
+        description: Plan/product type code (synthetic, e.g. HMO/PPO/EPO/POS).
+        synonyms: [plan, product type, benefit plan]
+        sample_values: [HMO, PPO, EPO, POS]
+      - name: plan_type_name
+        expr: PLAN_TYPE_NAME
+        data_type: TEXT
+        description: Human-readable plan/product type.
+        synonyms: [plan name, product name]
+      - name: provider_npi
+        expr: PROVIDER_NPI
+        data_type: TEXT
+        description: Synthetic rendering provider NPI.
+        synonyms: [npi, provider id, rendering provider]
+      - name: provider_name
+        expr: PROVIDER_NAME
+        data_type: TEXT
+        description: Synthetic provider display name.
+        synonyms: [provider, doctor, rendering provider name]
+      - name: provider_specialty
+        expr: PROVIDER_SPECIALTY
+        data_type: TEXT
+        description: Provider specialty.
+        synonyms: [specialty, taxonomy, provider type]
+      - name: provider_state
+        expr: PROVIDER_STATE
+        data_type: TEXT
+        description: Synthetic provider state.
+        synonyms: [provider geography, provider location]
+      - name: condition_group
+        expr: CONDITION_GROUP
+        data_type: TEXT
+        description: >-
+          Clinical condition grouper rolled up from the PRIMARY diagnosis
+          (e.g. Diabetes, CHF, Behavioral Health). JOIN key to condition cost.
+        synonyms: [condition, disease group, clinical group, dx group]
+      - name: primary_diagnosis_code
+        expr: PRIMARY_DIAGNOSIS_CODE
+        data_type: TEXT
+        description: Primary diagnosis code of the claim (synthetic code set).
+        synonyms: [diagnosis, dx, dx code, icd, primary dx]
+      - name: primary_diagnosis_description
+        expr: PRIMARY_DIAGNOSIS_DESCRIPTION
+        data_type: TEXT
+        description: Primary diagnosis description.
+        synonyms: [diagnosis description, dx description]
+      - name: procedure_code
+        expr: PROCEDURE_CODE
+        data_type: TEXT
+        description: Procedure / service code on the line (synthetic code set).
+        synonyms: [procedure, cpt, hcpcs, service code]
+      - name: procedure_category
+        expr: PROCEDURE_CATEGORY
+        data_type: TEXT
+        description: Procedure category bucket.
+        synonyms: [procedure group, service category]
+      - name: patient_sk
+        expr: PATIENT_SK
+        data_type: TEXT
+        description: Member/patient surrogate key. Used for distinct member counts.
+        synonyms: [member key, patient key, member sk]
+      - name: member_id
+        expr: MEMBER_ID
+        data_type: TEXT
+        description: Synthetic member identifier.
+        synonyms: [member, patient, enrollee, beneficiary]
+      - name: age_band
+        expr: AGE_BAND
+        data_type: TEXT
+        description: Synthetic member age band.
+        synonyms: [age group, age bucket]
+        sample_values: ["0-17", "18-34", "35-49", "50-64", "65+", "Unknown"]
+      - name: gender
+        expr: GENDER
+        data_type: TEXT
+        description: Synthetic member gender.
+        synonyms: [sex, member gender]
+      - name: member_state
+        expr: MEMBER_STATE
+        data_type: TEXT
+        description: Synthetic member state.
+        synonyms: [state, region, geography, member geography]
+      - name: denial_flag
+        expr: DENIAL_FLAG
+        data_type: BOOLEAN
+        description: TRUE when the line/claim was denied. Drives denial_rate.
+        synonyms: [denied, denial flag, was denied]
+      - name: denial_reason_code
+        expr: DENIAL_REASON_CODE
+        data_type: TEXT
+        description: Denial reason code (NULL when not denied).
+        synonyms: [denial reason, reason code, reject reason]
+      - name: adjustment_flag
+        expr: ADJUSTMENT_FLAG
+        data_type: BOOLEAN
+        description: TRUE when this claim's chain contains an adjustment.
+        synonyms: [adjustment, adjusted, replacement claim]
+      - name: reversal_flag
+        expr: REVERSAL_FLAG
+        data_type: BOOLEAN
+        description: TRUE when this claim's chain contains a reversal/void.
+        synonyms: [reversal, reversed, voided, void]
+
+    time_dimensions:
+      - name: claim_month
+        expr: CLAIM_MONTH
+        data_type: DATE
+        description: >-
+          Month the claim is attributed to (first day of service month). DEFAULT
+          time grain for "month" unless the user asks for service date.
+        synonyms: [month, claim period, incurred month, service month]
+      - name: service_date
+        expr: SERVICE_DATE
+        data_type: DATE
+        description: Date of service (line service-from date).
+        synonyms: [date of service, dos, service day, visit date]
+
+    measures:
+      - name: charge_amount
+        expr: CHARGE_AMOUNT
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Billed/submitted amount on the line. NOT what was paid.
+        synonyms: [charge, billed, submitted, billed amount, gross charge]
+      - name: allowed_amount
+        expr: ALLOWED_AMOUNT
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Contractually allowed amount (allowed = paid + patient resp).
+        synonyms: [allowed, contracted amount, allowable]
+      - name: paid_amount
+        expr: PAID_AMOUNT
+        data_type: NUMBER
+        default_aggregation: sum
+        description: >-
+          Adjudicated amount the payer paid (current valid version). The DEFAULT
+          meaning of "cost" / "spend". SYNTHETIC.
+        synonyms: [paid, spend, cost, payment, net paid, amount paid]
+      - name: patient_responsibility
+        expr: PATIENT_RESPONSIBILITY
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Line-allocated member cost share (copay + coinsurance + deductible).
+        synonyms: [patient responsibility, member cost share, out of pocket, oop]
+      - name: units
+        expr: UNITS
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Service units billed on the line.
+        synonyms: [units, quantity, service units]
+      - name: claim_count
+        expr: CLAIM_ID
+        data_type: NUMBER
+        default_aggregation: count_distinct
+        description: Distinct claims (header grain) — claims volume.
+        synonyms: [claims, claim volume, number of claims, claim count]
+      - name: line_count
+        expr: FACT_CLAIM_LINE_SK
+        data_type: NUMBER
+        default_aggregation: count
+        description: Number of service lines (this table's grain).
+        synonyms: [lines, service lines, line volume]
+      - name: distinct_member_count
+        expr: MEMBER_ID
+        data_type: NUMBER
+        default_aggregation: count_distinct
+        description: Distinct members with a claim — "members" by default = patients.
+        synonyms: [members, distinct members, unique members, patients, member count]
+
+  # ===========================================================================
+  # MEMBER MONTHS — PMPM denominator. GRAIN (payer, plan, month).
+  # Source: GOLD.gold_member_months (pre-aggregated; NOT member-level).
+  # ===========================================================================
+  - name: member_months
+    description: >-
+      Certified PMPM DENOMINATOR. One row per (payer, plan, month) with the count
+      of member months and distinct members covered. SYNTHETIC.
+    base_table:
+      database: CLAIMS_PROD
+      schema: GOLD
+      table: GOLD_MEMBER_MONTHS
+    primary_key:
+      columns: [PAYER_SK, PLAN_SK, MONTH_START]
+    dimensions:
+      - name: payer_sk
+        expr: PAYER_SK
+        data_type: TEXT
+        description: Payer surrogate key. JOIN key.
+        synonyms: [payer key]
+      - name: payer_name
+        expr: PAYER_NAME
+        data_type: TEXT
+        description: Synthetic payer display name.
+        synonyms: [payer, insurer]
+      - name: payer_type
+        expr: PAYER_TYPE
+        data_type: TEXT
+        description: Payer line of business.
+        synonyms: [line of business]
+        sample_values: [Commercial, Medicare, Medicaid, Other]
+      - name: plan_sk
+        expr: PLAN_SK
+        data_type: TEXT
+        description: Plan surrogate key. JOIN key.
+        synonyms: [plan key]
+      - name: plan_type
+        expr: PLAN_TYPE
+        data_type: TEXT
+        description: Plan/product type code.
+        synonyms: [plan, product type]
+        sample_values: [HMO, PPO, EPO, POS]
+      - name: plan_type_name
+        expr: PLAN_TYPE_NAME
+        data_type: TEXT
+        description: Human-readable plan/product type.
+        synonyms: [plan name]
+    time_dimensions:
+      - name: month_start
+        expr: MONTH_START
+        data_type: DATE
+        description: Calendar month of coverage (first day of month).
+        synonyms: [month, coverage month, eligibility month, enrollment month]
+    measures:
+      - name: member_months
+        expr: MEMBER_MONTHS
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Total member-months covered (PMPM denominator). Additive across months.
+        synonyms: [member months, mm, exposure months, eligibility months]
+      - name: distinct_members
+        expr: DISTINCT_MEMBERS
+        data_type: NUMBER
+        default_aggregation: sum
+        description: >-
+          Distinct members covered in the month (SEMI-additive — do NOT sum across
+          months for a unique-member total).
+        synonyms: [covered members, enrolled members, distinct members]
+
+  # ===========================================================================
+  # PAYER/PLAN SUMMARY — payer x plan x month (pre-aggregated GOLD P&L + PMPM).
+  # Source: GOLD.gold_payer_plan_summary.
+  # ===========================================================================
+  - name: payer_plan_summary
+    description: >-
+      Pre-aggregated payer x plan x month financial summary: paid/allowed/charge,
+      claim counts, member months, certified PMPM and denial rate. SYNTHETIC.
+    base_table:
+      database: CLAIMS_PROD
+      schema: GOLD
+      table: GOLD_PAYER_PLAN_SUMMARY
+    primary_key:
+      columns: [PAYER_SK, PLAN_SK, MONTH_START]
+    dimensions:
+      - name: payer_sk
+        expr: PAYER_SK
+        data_type: TEXT
+        synonyms: [payer key]
+        description: Payer surrogate key.
+      - name: payer_name
+        expr: PAYER_NAME
+        data_type: TEXT
+        synonyms: [payer, insurer]
+        description: Payer display name.
+      - name: payer_type
+        expr: PAYER_TYPE
+        data_type: TEXT
+        synonyms: [line of business]
+        description: Payer line of business.
+        sample_values: [Commercial, Medicare, Medicaid, Other]
+      - name: plan_sk
+        expr: PLAN_SK
+        data_type: TEXT
+        synonyms: [plan key]
+        description: Plan surrogate key.
+      - name: plan_type
+        expr: PLAN_TYPE
+        data_type: TEXT
+        synonyms: [plan, product type]
+        description: Plan/product type code.
+        sample_values: [HMO, PPO, EPO, POS]
+      - name: plan_type_name
+        expr: PLAN_TYPE_NAME
+        data_type: TEXT
+        synonyms: [plan name]
+        description: Human-readable plan/product type.
+    time_dimensions:
+      - name: month_start
+        expr: MONTH_START
+        data_type: DATE
+        synonyms: [month, claim period, incurred month]
+        description: Attribution month.
+    measures:
+      - name: total_paid
+        expr: TOTAL_PAID
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Total paid for the payer/plan/month. SYNTHETIC.
+        synonyms: [paid, spend, cost, payment]
+      - name: total_allowed
+        expr: TOTAL_ALLOWED
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Total allowed for the payer/plan/month.
+        synonyms: [allowed, allowable]
+      - name: total_charge
+        expr: TOTAL_CHARGE
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Total billed for the payer/plan/month.
+        synonyms: [charge, billed, submitted]
+      - name: total_patient_responsibility
+        expr: TOTAL_PATIENT_RESPONSIBILITY
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Total member cost share for the payer/plan/month.
+        synonyms: [patient responsibility, oop, cost share]
+      - name: claim_count
+        expr: CLAIM_COUNT
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Distinct claims for the payer/plan/month.
+        synonyms: [claims, claim count, volume]
+      - name: member_months
+        expr: MEMBER_MONTHS
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Member months joined from gold_member_months (PMPM denominator).
+        synonyms: [member months, mm]
+      - name: denied_claim_count
+        expr: DENIED_CLAIM_COUNT
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Denied claim count for the payer/plan/month.
+        synonyms: [denials, denied count]
+
+  # ===========================================================================
+  # PROVIDER UTILIZATION — provider x month. Source: GOLD.gold_provider_utilization.
+  # ===========================================================================
+  - name: provider_utilization
+    description: >-
+      Provider utilization summary: claim & line volume, paid/allowed, distinct
+      members and per-member rates per provider per month, with specialty and
+      state. SYNTHETIC.
+    base_table:
+      database: CLAIMS_PROD
+      schema: GOLD
+      table: GOLD_PROVIDER_UTILIZATION
+    primary_key:
+      columns: [PROVIDER_SK, MONTH_START]
+    dimensions:
+      - name: provider_sk
+        expr: PROVIDER_SK
+        data_type: TEXT
+        synonyms: [provider key]
+        description: Provider surrogate key.
+      - name: provider_npi
+        expr: PROVIDER_NPI
+        data_type: TEXT
+        synonyms: [npi, provider id]
+        description: Provider NPI.
+      - name: provider_name
+        expr: PROVIDER_NAME
+        data_type: TEXT
+        synonyms: [provider, doctor]
+        description: Provider display name.
+      - name: specialty
+        expr: SPECIALTY
+        data_type: TEXT
+        synonyms: [provider specialty, taxonomy, provider type]
+        description: Provider specialty.
+      - name: provider_state
+        expr: PROVIDER_STATE
+        data_type: TEXT
+        synonyms: [state, provider geography]
+        description: Provider state.
+    time_dimensions:
+      - name: month_start
+        expr: MONTH_START
+        data_type: DATE
+        synonyms: [month, period]
+        description: Attribution month.
+    measures:
+      - name: total_paid
+        expr: TOTAL_PAID
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Paid attributed to the provider for the month.
+        synonyms: [paid, spend, cost]
+      - name: total_allowed
+        expr: TOTAL_ALLOWED
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Allowed attributed to the provider for the month.
+        synonyms: [allowed]
+      - name: claims
+        expr: CLAIMS
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Distinct claims for the provider/month.
+        synonyms: [claim count, volume]
+      - name: claim_lines
+        expr: CLAIM_LINES
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Service lines for the provider/month.
+        synonyms: [lines, service lines]
+      - name: distinct_members
+        expr: DISTINCT_MEMBERS
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Distinct members seen by the provider that month (semi-additive across months).
+        synonyms: [members, patients, panel]
+      - name: paid_per_member
+        expr: PAID_PER_MEMBER
+        data_type: NUMBER
+        default_aggregation: avg
+        description: >-
+          Pre-computed total_paid / distinct_members. When aggregating across
+          rows, prefer recomputing SUM(total_paid)/SUM(distinct_members).
+        synonyms: [cost per member, per member cost]
+
+  # ===========================================================================
+  # CONDITION COST SUMMARY — condition_group x month.
+  # Source: GOLD.gold_condition_cost_summary.
+  # ===========================================================================
+  - name: condition_cost_summary
+    description: >-
+      Cost by clinical condition group per month: paid, distinct members with the
+      condition, cost per member, and top procedure categories. Answers "how many
+      UNIQUE members have diabetes?" SYNTHETIC.
+    base_table:
+      database: CLAIMS_PROD
+      schema: GOLD
+      table: GOLD_CONDITION_COST_SUMMARY
+    primary_key:
+      columns: [CONDITION_GROUP, CLAIM_MONTH]
+    dimensions:
+      - name: condition_group
+        expr: CONDITION_GROUP
+        data_type: TEXT
+        synonyms: [condition, disease group, clinical group, dx group]
+        description: Clinical condition grouper (from primary diagnosis).
+    time_dimensions:
+      - name: claim_month
+        expr: CLAIM_MONTH
+        data_type: DATE
+        synonyms: [month, period]
+        description: Attribution month.
+    measures:
+      - name: total_paid
+        expr: TOTAL_PAID
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Total paid for the condition group/month.
+        synonyms: [paid, spend, cost]
+      - name: total_allowed
+        expr: TOTAL_ALLOWED
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Total allowed for the condition group/month.
+        synonyms: [allowed]
+      - name: distinct_members_with_condition
+        expr: DISTINCT_MEMBERS_WITH_CONDITION
+        data_type: NUMBER
+        default_aggregation: sum
+        description: >-
+          Distinct members attributed to the condition that month (answers
+          "unique members with diabetes"). Semi-additive across months.
+        synonyms: [members, patients, members with condition, unique members]
+      - name: paid_per_member
+        expr: PAID_PER_MEMBER
+        data_type: NUMBER
+        default_aggregation: avg
+        description: Pre-computed paid / distinct members for the condition.
+        synonyms: [cost per member, per member cost]
+
+  # ===========================================================================
+  # DENIAL SUMMARY — payer x plan x status x reason x month.
+  # Source: GOLD.gold_claim_denial_summary.
+  # ===========================================================================
+  - name: claim_denial_summary
+    description: >-
+      Denial summary: total vs denied claims, certified denial rate, and top
+      denial reasons by payer/plan/status/reason/month. SYNTHETIC.
+    base_table:
+      database: CLAIMS_PROD
+      schema: GOLD
+      table: GOLD_CLAIM_DENIAL_SUMMARY
+    primary_key:
+      columns: [PAYER_SK, PLAN_SK, CLAIM_STATUS, DENIAL_REASON_CODE, CLAIM_MONTH]
+    dimensions:
+      - name: payer_sk
+        expr: PAYER_SK
+        data_type: TEXT
+        synonyms: [payer key]
+        description: Payer surrogate key.
+      - name: payer_name
+        expr: PAYER_NAME
+        data_type: TEXT
+        synonyms: [payer, insurer]
+        description: Payer display name.
+      - name: payer_type
+        expr: PAYER_TYPE
+        data_type: TEXT
+        synonyms: [line of business]
+        description: Payer line of business.
+      - name: plan_sk
+        expr: PLAN_SK
+        data_type: TEXT
+        synonyms: [plan key]
+        description: Plan surrogate key.
+      - name: plan_type
+        expr: PLAN_TYPE
+        data_type: TEXT
+        synonyms: [plan, product type]
+        description: Plan/product type.
+      - name: claim_status
+        expr: CLAIM_STATUS
+        data_type: TEXT
+        synonyms: [status, adjudication status]
+        description: Claim adjudication status.
+      - name: denial_reason
+        expr: DENIAL_REASON
+        data_type: TEXT
+        synonyms: [reason, denial reason, reject reason]
+        description: Human-readable denial reason ("Not Denied" for clean claims).
+    time_dimensions:
+      - name: claim_month
+        expr: CLAIM_MONTH
+        data_type: DATE
+        synonyms: [month, period]
+        description: Attribution month.
+    measures:
+      - name: total_claims
+        expr: TOTAL_CLAIMS
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Total claims for the slice.
+        synonyms: [claims, submitted claims, volume]
+      - name: denied_claims
+        expr: DENIED_CLAIMS
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Denied claims for the slice.
+        synonyms: [denials, denied count]
+      - name: denied_paid_impact
+        expr: DENIED_PAID_IMPACT
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Allowed withheld on denied lines (proxy for denial $ impact).
+        synonyms: [denied impact, withheld amount]
+
+  # ===========================================================================
+  # LATE ARRIVAL IMPACT — impacted service month.
+  # Source: GOLD.gold_late_arrival_impact.
+  # ===========================================================================
+  - name: late_arrival_impact
+    description: >-
+      Late-arrival explainability: splits a month's paid into original (on-time)
+      vs late (arrived after the month closed) vs restated (current total).
+      Explains WHY a prior month's paid changed after first load. SYNTHETIC.
+    base_table:
+      database: CLAIMS_PROD
+      schema: GOLD
+      table: GOLD_LATE_ARRIVAL_IMPACT
+    primary_key:
+      columns: [IMPACTED_PERIOD]
+    time_dimensions:
+      - name: impacted_period
+        expr: IMPACTED_PERIOD
+        data_type: DATE
+        synonyms: [month, impacted month, incurred month, service month]
+        description: Service month the late claims restated.
+    measures:
+      - name: original_paid
+        expr: ORIGINAL_PAID
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Paid excluding late-arriving claims (what the month first showed).
+        synonyms: [original paid, on-time paid, first reported paid]
+      - name: late_paid
+        expr: LATE_PAID
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Paid added by late-arriving claims.
+        synonyms: [late paid, runout paid, late spend]
+      - name: restated_paid
+        expr: RESTATED_PAID
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Current certified total (= original_paid + late_paid).
+        synonyms: [restated paid, current paid, total paid]
+      - name: paid_delta
+        expr: PAID_DELTA
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Movement = restated - original = late_paid.
+        synonyms: [delta, change, movement]
+      - name: late_arriving_line_count
+        expr: LATE_ARRIVING_LINE_COUNT
+        data_type: NUMBER
+        default_aggregation: sum
+        description: Count of late-arriving service lines.
+        synonyms: [late lines, runout lines]
+
+  # ===========================================================================
+  # ELIGIBILITY MONTH (dimensional) — authoritative member-month spine.
+  # Source: SILVER_DIMENSIONAL.fact_eligibility_month.
+  # ===========================================================================
+  - name: eligibility_month
+    description: >-
+      Dimensional member-month eligibility fact: one row per (member, payer, plan,
+      covered month). SUM(member_month_flag) = member months. Feeds
+      gold_member_months. SYNTHETIC.
+    base_table:
+      database: CLAIMS_PROD
+      schema: SILVER_DIMENSIONAL
+      table: FACT_ELIGIBILITY_MONTH
+    primary_key:
+      columns: [FACT_ELIGIBILITY_MONTH_SK]
+    dimensions:
+      - name: member_id
+        expr: MEMBER_ID
+        data_type: TEXT
+        synonyms: [member, patient, enrollee]
+        description: Synthetic member identifier.
+      - name: patient_sk
+        expr: PATIENT_SK
+        data_type: TEXT
+        synonyms: [member key, patient key]
+        description: Member surrogate key.
+      - name: payer_sk
+        expr: PAYER_SK
+        data_type: TEXT
+        synonyms: [payer key]
+        description: Covering payer surrogate key.
+      - name: plan_sk
+        expr: PLAN_SK
+        data_type: TEXT
+        synonyms: [plan key]
+        description: Covering plan surrogate key.
+    time_dimensions:
+      - name: month_start
+        expr: MONTH_START
+        data_type: DATE
+        synonyms: [month, coverage month, eligibility month]
+        description: Calendar month of coverage.
+    measures:
+      - name: member_months
+        expr: MEMBER_MONTH_FLAG
+        data_type: NUMBER
+        default_aggregation: sum
+        description: One member-month per row; SUM = member months.
+        synonyms: [member months, mm, exposure]
+      - name: distinct_members
+        expr: MEMBER_ID
+        data_type: NUMBER
+        default_aggregation: count_distinct
+        description: Distinct covered members in the period.
+        synonyms: [covered members, enrolled members]
+
+# -----------------------------------------------------------------------------
+# RELATIONSHIPS (joins)
+# Fact `claim_line` joins to the pre-aggregated summaries on conformed SURROGATE
+# keys: payer_sk, plan_sk, the month (claim_month <-> month_start), and
+# condition_group. left_outer keeps fact rows when no summary row matches.
+# -----------------------------------------------------------------------------
+relationships:
+  - name: claim_line_to_payer_plan_summary
+    left_table: claim_line
+    right_table: payer_plan_summary
+    relationship_columns:
+      - left_column: PAYER_SK
+        right_column: PAYER_SK
+      - left_column: PLAN_SK
+        right_column: PLAN_SK
+      - left_column: CLAIM_MONTH
+        right_column: MONTH_START
+    join_type: left_outer
+    relationship_type: many_to_one
+
+  - name: claim_line_to_member_months
+    left_table: claim_line
+    right_table: member_months
+    relationship_columns:
+      - left_column: PAYER_SK
+        right_column: PAYER_SK
+      - left_column: PLAN_SK
+        right_column: PLAN_SK
+      - left_column: CLAIM_MONTH
+        right_column: MONTH_START
+    join_type: left_outer
+    relationship_type: many_to_one
+
+  - name: claim_line_to_condition_cost
+    left_table: claim_line
+    right_table: condition_cost_summary
+    relationship_columns:
+      - left_column: CONDITION_GROUP
+        right_column: CONDITION_GROUP
+      - left_column: CLAIM_MONTH
+        right_column: CLAIM_MONTH
+    join_type: left_outer
+    relationship_type: many_to_one
+
+  - name: claim_line_to_denial_summary
+    left_table: claim_line
+    right_table: claim_denial_summary
+    relationship_columns:
+      - left_column: PAYER_SK
+        right_column: PAYER_SK
+      - left_column: PLAN_SK
+        right_column: PLAN_SK
+      - left_column: CLAIM_MONTH
+        right_column: CLAIM_MONTH
+    join_type: left_outer
+    relationship_type: many_to_one
+
+  # member_months <-> payer_plan_summary on payer/plan/month for PMPM joins.
+  - name: member_months_to_payer_plan_summary
+    left_table: member_months
+    right_table: payer_plan_summary
+    relationship_columns:
+      - left_column: PAYER_SK
+        right_column: PAYER_SK
+      - left_column: PLAN_SK
+        right_column: PLAN_SK
+      - left_column: MONTH_START
+        right_column: MONTH_START
+    join_type: left_outer
+    relationship_type: one_to_one
+
+# -----------------------------------------------------------------------------
+# NAMED METRICS (certified / verified measures)
+# Governed metric definitions; Cortex Analyst should PREFER these over re-deriving
+# aggregations. Math mirrors SEMANTIC.METRIC_REGISTRY + the SEMANTIC VIEW.
+# Ratios (PMPM, denial_rate) are recomputed from numerator/denominator at the
+# correct grain — never averaged from a pre-computed rate column.
+# -----------------------------------------------------------------------------
+metrics:
+  - name: total_paid_amount
+    description: Total adjudicated paid amount (current valid version). CERTIFIED. SYNTHETIC.
+    expr: SUM(claim_line.PAID_AMOUNT)
+    synonyms: [total paid, paid, spend, total cost, total spend]
+
+  - name: allowed_amount
+    description: Total contractually allowed amount. CERTIFIED.
+    expr: SUM(claim_line.ALLOWED_AMOUNT)
+    synonyms: [total allowed, allowed, allowable]
+
+  - name: charge_amount
+    description: Total billed/submitted amount. CERTIFIED.
+    expr: SUM(claim_line.CHARGE_AMOUNT)
+    synonyms: [total charge, billed, submitted]
+
+  - name: patient_responsibility
+    description: Total member cost share (line-allocated). CERTIFIED.
+    expr: SUM(claim_line.PATIENT_RESPONSIBILITY)
+    synonyms: [oop, out of pocket, member cost share]
+
+  - name: member_months
+    description: Total member months (PMPM denominator). CERTIFIED.
+    expr: SUM(member_months.MEMBER_MONTHS)
+    synonyms: [member months, mm, exposure months]
+
+  - name: pmpm
+    description: >-
+      Per-member-per-month paid = total paid / member months. CERTIFIED.
+      Numerator from payer_plan_summary.TOTAL_PAID, denominator from member_months;
+      joined on payer/plan/month so the ratio is at the correct grain.
+    expr: >-
+      SUM(payer_plan_summary.TOTAL_PAID)
+        / NULLIF(SUM(member_months.MEMBER_MONTHS), 0)
+    synonyms: [pmpm, per member per month, paid pmpm, cost pmpm]
+
+  - name: denial_rate
+    description: >-
+      Denied claims / total claims, recomputed from counts (NOT an average of a
+      pre-computed rate). CERTIFIED.
+    expr: >-
+      SUM(claim_denial_summary.DENIED_CLAIMS)
+        / NULLIF(SUM(claim_denial_summary.TOTAL_CLAIMS), 0)
+    synonyms: [denial rate, denial percentage, reject rate]
+
+  - name: distinct_members
+    description: Distinct members with a claim. "Members" = distinct patients. CERTIFIED.
+    expr: COUNT(DISTINCT claim_line.MEMBER_ID)
+    synonyms: [members, distinct members, unique members, patients]
+
+  - name: claims_volume
+    description: Distinct claims (header grain). CERTIFIED.
+    expr: COUNT(DISTINCT claim_line.CLAIM_ID)
+    synonyms: [claims, claim volume, number of claims]
+
+  - name: adjustment_count
+    description: Distinct claims whose chain contains an adjustment. CERTIFIED.
+    expr: COUNT(DISTINCT CASE WHEN claim_line.ADJUSTMENT_FLAG THEN claim_line.CLAIM_ID END)
+    synonyms: [adjustments, adjustment count, adjusted claims]
+
+  - name: reversal_count
+    description: Distinct claims whose chain contains a reversal/void. CERTIFIED.
+    expr: COUNT(DISTINCT CASE WHEN claim_line.REVERSAL_FLAG THEN claim_line.CLAIM_ID END)
+    synonyms: [reversals, reversal count, voids]
+
+# -----------------------------------------------------------------------------
+# VERIFIED QUERIES
+# Human-validated NL -> SQL exemplars (canonical list also in verified_queries.yml).
+# SQL validated against the GOLD models' actual columns. Swap CLAIMS_PROD ->
+# CLAIMS_DEV for dev. All carry a LIMIT.
+# -----------------------------------------------------------------------------
+verified_queries:
+
+  - name: total_paid_by_month
+    question: What was total paid by month?
+    verified_at: 1718236800
+    sql: |
+      SELECT claim_month,
+             SUM(paid_amount) AS total_paid_amount
+      FROM CLAIMS_PROD.GOLD.GOLD_CLAIMS_SEMANTIC_BASE
+      GROUP BY claim_month
+      ORDER BY claim_month
+      LIMIT 1000;
+
+  - name: pmpm_by_plan_type
+    question: What is PMPM by plan type?
+    verified_at: 1718236800
+    sql: |
+      SELECT plan_type,
+             SUM(total_paid)                                  AS total_paid_amount,
+             SUM(member_months)                              AS member_months,
+             SUM(total_paid) / NULLIF(SUM(member_months), 0) AS pmpm
+      FROM CLAIMS_PROD.GOLD.GOLD_PAYER_PLAN_SUMMARY
+      GROUP BY plan_type
+      ORDER BY pmpm DESC
+      LIMIT 1000;
+
+  - name: member_months_by_payer
+    question: How many member months by payer?
+    verified_at: 1718236800
+    sql: |
+      SELECT payer_name,
+             SUM(member_months) AS member_months
+      FROM CLAIMS_PROD.GOLD.GOLD_MEMBER_MONTHS
+      GROUP BY payer_name
+      ORDER BY member_months DESC
+      LIMIT 1000;
+
+  - name: claims_volume_by_status
+    question: What is claims volume by status?
+    verified_at: 1718236800
+    sql: |
+      SELECT claim_status,
+             COUNT(DISTINCT claim_id) AS claims_volume
+      FROM CLAIMS_PROD.GOLD.GOLD_CLAIMS_SEMANTIC_BASE
+      GROUP BY claim_status
+      ORDER BY claims_volume DESC
+      LIMIT 1000;
+
+  - name: denial_rate_by_payer_plan
+    question: What is the denial rate by payer and plan?
+    verified_at: 1718236800
+    sql: |
+      SELECT payer_name,
+             plan_type,
+             SUM(denied_claims)                              AS denied_claims,
+             SUM(total_claims)                               AS total_claims,
+             SUM(denied_claims) / NULLIF(SUM(total_claims), 0) AS denial_rate
+      FROM CLAIMS_PROD.GOLD.GOLD_CLAIM_DENIAL_SUMMARY
+      GROUP BY payer_name, plan_type
+      ORDER BY denial_rate DESC
+      LIMIT 1000;
+
+  - name: provider_utilization_by_specialty
+    question: Show provider utilization by specialty.
+    verified_at: 1718236800
+    sql: |
+      SELECT specialty,
+             SUM(claims)                                AS claims,
+             SUM(claim_lines)                           AS claim_lines,
+             SUM(total_paid)                            AS total_paid_amount,
+             SUM(distinct_members)                      AS member_touches,
+             SUM(total_paid) / NULLIF(SUM(distinct_members), 0) AS paid_per_member
+      FROM CLAIMS_PROD.GOLD.GOLD_PROVIDER_UTILIZATION
+      GROUP BY specialty
+      ORDER BY total_paid_amount DESC
+      LIMIT 1000;
+
+  - name: condition_cost_summary
+    question: What is the cost by condition group, and how many unique members?
+    verified_at: 1718236800
+    sql: |
+      SELECT condition_group,
+             SUM(total_paid)                                              AS total_paid_amount,
+             SUM(distinct_members_with_condition)                         AS distinct_members,
+             SUM(total_paid) / NULLIF(SUM(distinct_members_with_condition), 0) AS paid_per_member
+      FROM CLAIMS_PROD.GOLD.GOLD_CONDITION_COST_SUMMARY
+      GROUP BY condition_group
+      ORDER BY total_paid_amount DESC
+      LIMIT 1000;
+
+  - name: late_arrival_impact
+    question: Why did a prior month's paid change? Show late-arriving claim impact.
+    verified_at: 1718236800
+    sql: |
+      SELECT impacted_period,
+             original_paid,
+             late_paid,
+             restated_paid,
+             paid_delta,
+             paid_pct_change,
+             late_arriving_line_count
+      FROM CLAIMS_PROD.GOLD.GOLD_LATE_ARRIVAL_IMPACT
+      ORDER BY impacted_period
+      LIMIT 1000;
+
+  - name: adjustment_and_reversal_counts
+    question: How many adjustments and reversals are there by month?
+    verified_at: 1718236800
+    sql: |
+      SELECT claim_month,
+             COUNT(DISTINCT CASE WHEN adjustment_flag THEN claim_id END) AS adjustment_count,
+             COUNT(DISTINCT CASE WHEN reversal_flag   THEN claim_id END) AS reversal_count
+      FROM CLAIMS_PROD.GOLD.GOLD_CLAIMS_SEMANTIC_BASE
+      GROUP BY claim_month
+      ORDER BY claim_month
+      LIMIT 1000;
+
+  - name: line_header_reconciliation
+    question: Do claim line paid amounts reconcile to the header (claim) total?
+    verified_at: 1718236800
+    sql: |
+      -- The fact carries CURRENT valid versions only, so SUM(line paid) per
+      -- claim_header_sk is the certified header paid. This surfaces any claim
+      -- whose lines do not sum cleanly (expected: none — enforced by the dbt test
+      -- assert_claim_header_line_totals_reconcile).
+      SELECT claim_id,
+             claim_header_sk,
+             COUNT(*)            AS line_count,
+             SUM(paid_amount)    AS header_paid_amount,
+             SUM(allowed_amount) AS header_allowed_amount
+      FROM CLAIMS_PROD.GOLD.GOLD_CLAIMS_SEMANTIC_BASE
+      GROUP BY claim_id, claim_header_sk
+      ORDER BY header_paid_amount DESC
+      LIMIT 1000;
+
+# -----------------------------------------------------------------------------
+# CUSTOM INSTRUCTIONS — global guidance for Cortex Analyst.
+# -----------------------------------------------------------------------------
+custom_instructions: >-
+  (1) This is SYNTHETIC data — not real CMS / Medicare / Medicaid / TAF / RIF
+  data and contains no PHI/PII. Never present results as real clinical or
+  financial facts; add a brief synthetic-data caveat when summarizing.
+  (2) PREFER the certified named metrics (total_paid_amount, allowed_amount,
+  charge_amount, pmpm, member_months, denial_rate, distinct_members,
+  claims_volume, adjustment_count, reversal_count) over inventing your own
+  aggregations. When you use a metric, STATE its one-line definition (e.g.
+  "PMPM = total paid / member months").
+  (3) Disambiguate "cost"/"spend" -> paid_amount by DEFAULT; if the user might
+  mean allowed or charge, say which you used and offer to switch.
+  (4) "members" = DISTINCT patients (distinct_members), not rows or claims.
+  (5) "month" = claim_month (gold_claims_semantic_base) or month_start (summary
+  tables) by default; use service_date only when the user explicitly asks for
+  service date.
+  (6) For PMPM, denial_rate and any ratio, recompute from numerator/denominator
+  at the correct grain — do NOT average a pre-computed rate/per-member column.
+  (7) distinct_members / distinct_members_with_condition are SEMI-additive — do
+  not SUM them across months to get a unique total.
+  (8) If the requested grain is ambiguous (header vs line, payer vs plan, claim
+  month vs service date), ASK ONE clarifying question before answering.
+  (9) Always apply a row LIMIT (default 1000) to result sets.
+  (10) NEVER query RAW or BRONZE schemas — only GOLD and SILVER_DIMENSIONAL.
+  (11) For definitional questions ("what does paid mean?", "grain of
+  fact_claim_line?", "why did last month's paid change?"), defer to Cortex Search
+  over the data dictionary / metric registry / runbook rather than guessing.
+
+# -----------------------------------------------------------------------------
+# DISAMBIGUATION RULES — explicit term -> resolution map for the LLM.
+# -----------------------------------------------------------------------------
+module_custom_instructions:
+  sql_generation: >-
+    Resolve ambiguous business terms as follows:
+      - "cost" / "spend" / "amount"      -> paid_amount  (clarify allowed vs charge on doubt)
+      - "members" / "patients"           -> COUNT(DISTINCT member_id)  (distinct_members)
+      - "month" (unqualified)            -> claim_month (base) / month_start (summaries)
+      - "claims" / "volume"              -> COUNT(DISTINCT claim_id)  (claims_volume)
+      - "PMPM"                           -> total_paid / member_months
+      - "denial rate"                    -> denied_claims / total_claims (recomputed)
+      - "dx" / "diagnosis"               -> primary_diagnosis_code
+      - "condition"                      -> condition_group
+      - "provider" / "doctor"            -> provider_npi / provider_name
+      - "late" / "runout"                -> late_arrival_impact table (original vs late vs restated)
+    When a term could map to multiple grains or measures, ask one short
+    clarifying question rather than guessing.

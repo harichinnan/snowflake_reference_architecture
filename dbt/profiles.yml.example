@@ -1,0 +1,115 @@
+# =============================================================================
+# profiles.yml.example
+# snowflake-claims-platform :: dbt-snowflake connection profile
+#
+# Copy to ~/.dbt/profiles.yml (or set DBT_PROFILES_DIR) and fill in / export the
+# referenced environment variables. NEVER commit a real profiles.yml with
+# secrets. Key-pair auth is preferred; password auth is shown commented as a
+# fallback for local dev only.
+#
+# Required env vars (examples):
+#   export DBT_SNOWFLAKE_ACCOUNT="xy12345.us-east-1"   # <org>-<account> or locator
+#   export DBT_SNOWFLAKE_USER="SVC_DBT_CLAIMS"
+#   export DBT_SNOWFLAKE_ROLE="CLAIMS_TRANSFORMER"
+#   export DBT_SNOWFLAKE_PRIVATE_KEY_PATH="/secure/keys/dbt_claims_rsa_key.p8"
+#   export DBT_SNOWFLAKE_PRIVATE_KEY_PASSPHRASE="..."   # if key is encrypted
+#   # Optional per-developer schema override (defaults shown per target):
+#   export DBT_DEV_SCHEMA="DBT_${USER}"
+# =============================================================================
+
+claims_platform:
+  # Default target if --target is not passed. Keep this on dev for safety.
+  target: dev
+
+  outputs:
+
+    # -------------------------------------------------------------------------
+    # DEV  -> CLAIMS_DEV / WH_CLAIMS_TRANSFORM
+    # Per-developer working schema. Key-pair auth.
+    # -------------------------------------------------------------------------
+    dev:
+      type: snowflake
+      account: "{{ env_var('DBT_SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('DBT_SNOWFLAKE_USER') }}"
+      role: "{{ env_var('DBT_SNOWFLAKE_ROLE', 'CLAIMS_TRANSFORMER') }}"
+
+      # Key-pair authentication (preferred). Point at an unencrypted or
+      # encrypted PKCS#8 .p8 file. If encrypted, also set the passphrase.
+      private_key_path: "{{ env_var('DBT_SNOWFLAKE_PRIVATE_KEY_PATH') }}"
+      private_key_passphrase: "{{ env_var('DBT_SNOWFLAKE_PRIVATE_KEY_PASSPHRASE', '') }}"
+
+      # --- Password fallback (local dev only) -- uncomment & remove key-pair
+      # password: "{{ env_var('DBT_SNOWFLAKE_PASSWORD') }}"
+      # --- External browser SSO fallback (uncomment if used) ---------------
+      # authenticator: externalbrowser
+
+      database: CLAIMS_DEV
+      warehouse: WH_CLAIMS_TRANSFORM
+      # Default to a per-user schema so devs don't collide. Models pin their
+      # own custom schema (CONTROL/BRONZE/...) via generate_schema_name.
+      schema: "{{ env_var('DBT_DEV_SCHEMA', 'DBT_DEV') }}"
+
+      threads: 8
+      client_session_keep_alive: false
+      query_tag: "dbt-claims-dev"
+      # Bump if large warehouse statements occasionally exceed default.
+      connect_retries: 1
+      connect_timeout: 30
+      retry_on_database_errors: true
+      retry_all: false
+
+    # -------------------------------------------------------------------------
+    # PROD -> CLAIMS_PROD / WH_CLAIMS_TRANSFORM
+    # Service account, key-pair only. No password fallback in prod.
+    # -------------------------------------------------------------------------
+    prod:
+      type: snowflake
+      account: "{{ env_var('DBT_SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('DBT_SNOWFLAKE_PROD_USER', env_var('DBT_SNOWFLAKE_USER')) }}"
+      role: "{{ env_var('DBT_SNOWFLAKE_PROD_ROLE', 'CLAIMS_TRANSFORMER_PROD') }}"
+
+      private_key_path: "{{ env_var('DBT_SNOWFLAKE_PROD_PRIVATE_KEY_PATH', env_var('DBT_SNOWFLAKE_PRIVATE_KEY_PATH')) }}"
+      private_key_passphrase: "{{ env_var('DBT_SNOWFLAKE_PROD_PRIVATE_KEY_PASSPHRASE', '') }}"
+
+      database: CLAIMS_PROD
+      warehouse: WH_CLAIMS_TRANSFORM
+      # Prod models land in their pinned custom schemas; this is the default
+      # target schema only (rarely used directly).
+      schema: PUBLIC
+
+      threads: 12
+      client_session_keep_alive: false
+      query_tag: "dbt-claims-prod"
+      connect_retries: 2
+      connect_timeout: 30
+      retry_on_database_errors: true
+      retry_all: false
+
+    # -------------------------------------------------------------------------
+    # CI   -> CLAIMS_DEV / WH_CLAIMS_CI / schema DBT_CI
+    # Ephemeral CI builds in CLAIMS_DEV using the dedicated CI warehouse.
+    # -------------------------------------------------------------------------
+    ci:
+      type: snowflake
+      account: "{{ env_var('DBT_SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('DBT_SNOWFLAKE_CI_USER', env_var('DBT_SNOWFLAKE_USER')) }}"
+      role: "{{ env_var('DBT_SNOWFLAKE_CI_ROLE', 'CLAIMS_CI') }}"
+
+      private_key_path: "{{ env_var('DBT_SNOWFLAKE_CI_PRIVATE_KEY_PATH', env_var('DBT_SNOWFLAKE_PRIVATE_KEY_PATH')) }}"
+      private_key_passphrase: "{{ env_var('DBT_SNOWFLAKE_CI_PRIVATE_KEY_PASSPHRASE', '') }}"
+
+      # Password fallback for CI runners that inject a secret instead of a key.
+      # password: "{{ env_var('DBT_SNOWFLAKE_CI_PASSWORD') }}"
+
+      database: CLAIMS_DEV
+      warehouse: WH_CLAIMS_CI
+      # Optionally suffix with the PR/run id for isolation, e.g. DBT_CI_PR123.
+      schema: "{{ env_var('DBT_CI_SCHEMA', 'DBT_CI') }}"
+
+      threads: 8
+      client_session_keep_alive: false
+      query_tag: "dbt-claims-ci"
+      connect_retries: 1
+      connect_timeout: 30
+      retry_on_database_errors: true
+      retry_all: false

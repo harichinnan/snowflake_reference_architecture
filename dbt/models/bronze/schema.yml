@@ -1,0 +1,290 @@
+# =============================================================================
+# bronze/schema.yml
+# Documentation + tests for the conformed BRONZE event models.
+#
+# Each bronze model standardizes its BR_RAW_* landing table while preserving
+# the immutable VARIANT payload, and realizes these DCM domains:
+#   A (Source)      -- source_system / source_file_* lineage carried through.
+#   B (Batch)       -- batch_id / load_id / pipeline_run_id / is_reprocessed (DCM
+#                      columns) carried through for batch traceability.
+#   C (Watermark)   -- incremental_watermark_filter + lookback drive incremental
+#                      reads; a post-hook advances CONTROL.WATERMARK_STATE.
+#   D (Idempotency) -- payload_hash + QUALIFY ROW_NUMBER() dedupe on
+#                      natural_key + payload_hash; MERGE on bronze_event_id.
+#   E (Data Quality)-- record_status (VALID/QUARANTINE) + quarantine_reason.
+#   H (Lineage)     -- audit_columns() standardized lineage columns.
+#
+# Recency / freshness note (DCM I): source freshness for the BR_RAW_* landing
+# tables is configured in sources.yml (loaded_at_field: ingest_ts, warn 24h /
+# error 48h). These models additionally retain source_extract_ts, ingest_ts and
+# business_event_ts so downstream freshness + late-arrival analysis (see
+# control_freshness_status / control_late_arrival_summary) can be computed.
+# =============================================================================
+version: 2
+
+models:
+  # ---------------------------------------------------------------------------
+  - name: br_raw_claim_event
+    description: >
+      Conformed claim lifecycle events (header/line, adjustment, void, reversal).
+      Natural key = claim_id + claim_version. Realizes DCM A/B/C/D/E/H.
+    columns:
+      - name: bronze_event_id
+        description: "Immutable per-event landing surrogate; MERGE unique_key. DCM D."
+        data_tests:
+          - not_null
+          - unique
+      - name: natural_key
+        description: "claim_id|claim_version business identity used for dedupe. DCM D."
+        data_tests:
+          - not_null
+      - name: payload_hash
+        description: "Deterministic content hash of the VARIANT payload. DCM D."
+        data_tests:
+          - not_null
+      - name: record_status
+        description: "VALID or QUARANTINE per DCM E data-quality rules."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['VALID', 'QUARANTINE']
+      - name: business_event_ts
+        description: "When the claim event happened; incremental watermark column. DCM C."
+      - name: source_extract_ts
+        description: "When the source produced the extract; used for dedupe ordering + late-arrival analysis. DCM A/I."
+      - name: ingest_ts
+        description: "When Snowflake loaded the row; source freshness field. DCM I."
+      - name: claim_id
+        description: "Business claim identifier extracted from payload."
+      - name: claim_version
+        description: "Claim version/sequence for adjustment chains."
+      - name: member_id
+        description: "Member identifier (required key)."
+      - name: paid_amount
+        description: "Paid amount; negative only allowed on adjustment/reversal/void events."
+      - name: payload
+        description: "Immutable raw VARIANT payload."
+      - name: batch_id
+        description: "DCM B load batch identifier."
+      - name: load_id
+        description: "DCM B load identifier."
+      - name: pipeline_run_id
+        description: "DCM B pipeline run identifier."
+      - name: is_reprocessed
+        description: "DCM G flag: row produced by a reprocessing run."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - natural_key
+            - payload_hash
+
+  # ---------------------------------------------------------------------------
+  - name: br_raw_eligibility_event
+    description: >
+      Conformed member eligibility / coverage-span events, including retro-active
+      coverage. Natural key = member_id + coverage_start_date + plan_id.
+      Realizes DCM A/B/C/D/E/H.
+    columns:
+      - name: bronze_event_id
+        description: "Immutable per-event landing surrogate; MERGE unique_key. DCM D."
+        data_tests:
+          - not_null
+          - unique
+      - name: natural_key
+        description: "member_id|coverage_start_date|plan_id identity used for dedupe. DCM D."
+        data_tests:
+          - not_null
+      - name: payload_hash
+        description: "Deterministic content hash of the VARIANT payload. DCM D."
+        data_tests:
+          - not_null
+      - name: record_status
+        description: "VALID or QUARANTINE per DCM E data-quality rules."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['VALID', 'QUARANTINE']
+      - name: member_id
+        description: "Member identifier (required key)."
+      - name: plan_id
+        description: "Plan identifier (required key)."
+      - name: coverage_start_date
+        description: "Coverage span start (required key)."
+      - name: coverage_end_date
+        description: "Coverage span end; must be >= coverage_start_date."
+      - name: retro_active_indicator
+        description: "Boolean-normalized retro-active coverage flag."
+      - name: business_event_ts
+        description: "Eligibility event timestamp; incremental watermark column. DCM C."
+      - name: batch_id
+        description: "DCM B load batch identifier."
+      - name: load_id
+        description: "DCM B load identifier."
+      - name: pipeline_run_id
+        description: "DCM B pipeline run identifier."
+      - name: is_reprocessed
+        description: "DCM G flag: row produced by a reprocessing run."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - natural_key
+            - payload_hash
+
+  # ---------------------------------------------------------------------------
+  - name: br_raw_provider_event
+    description: >
+      Conformed provider master events. Natural key = npi. Realizes DCM A/B/C/D/E/H.
+    columns:
+      - name: bronze_event_id
+        description: "Immutable per-event landing surrogate; MERGE unique_key. DCM D."
+        data_tests:
+          - not_null
+          - unique
+      - name: natural_key
+        description: "npi business identity used for dedupe. DCM D."
+        data_tests:
+          - not_null
+      - name: payload_hash
+        description: "Deterministic content hash of the VARIANT payload. DCM D."
+        data_tests:
+          - not_null
+      - name: record_status
+        description: "VALID or QUARANTINE per DCM E data-quality rules."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['VALID', 'QUARANTINE']
+      - name: npi
+        description: "Provider NPI (required key, validated as 10-digit numeric)."
+      - name: provider_name
+        description: "Provider display name."
+      - name: provider_type
+        description: "Provider classification."
+      - name: taxonomy_code
+        description: "Provider taxonomy code."
+      - name: business_event_ts
+        description: "Provider event timestamp; incremental watermark column. DCM C."
+      - name: batch_id
+        description: "DCM B load batch identifier."
+      - name: load_id
+        description: "DCM B load identifier."
+      - name: pipeline_run_id
+        description: "DCM B pipeline run identifier."
+      - name: is_reprocessed
+        description: "DCM G flag: row produced by a reprocessing run."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - natural_key
+            - payload_hash
+
+  # ---------------------------------------------------------------------------
+  - name: br_raw_pharmacy_event
+    description: >
+      Conformed pharmacy (Rx) claim events. Natural key = pharmacy_claim_id.
+      Realizes DCM A/B/C/D/E/H.
+    columns:
+      - name: bronze_event_id
+        description: "Immutable per-event landing surrogate; MERGE unique_key. DCM D."
+        data_tests:
+          - not_null
+          - unique
+      - name: natural_key
+        description: "pharmacy_claim_id identity used for dedupe. DCM D."
+        data_tests:
+          - not_null
+      - name: payload_hash
+        description: "Deterministic content hash of the VARIANT payload. DCM D."
+        data_tests:
+          - not_null
+      - name: record_status
+        description: "VALID or QUARANTINE per DCM E data-quality rules."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['VALID', 'QUARANTINE']
+      - name: pharmacy_claim_id
+        description: "Pharmacy claim identifier (required key)."
+      - name: member_id
+        description: "Member identifier (required key)."
+      - name: ndc
+        description: "National Drug Code dispensed."
+      - name: fill_date
+        description: "Prescription fill date."
+      - name: days_supply
+        description: "Days supply; must be positive when provided."
+      - name: paid_amount
+        description: "Paid amount; negative only allowed on adjustment/reversal/void events."
+      - name: business_event_ts
+        description: "Pharmacy event timestamp; incremental watermark column. DCM C."
+      - name: batch_id
+        description: "DCM B load batch identifier."
+      - name: load_id
+        description: "DCM B load identifier."
+      - name: pipeline_run_id
+        description: "DCM B pipeline run identifier."
+      - name: is_reprocessed
+        description: "DCM G flag: row produced by a reprocessing run."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - natural_key
+            - payload_hash
+
+  # ---------------------------------------------------------------------------
+  - name: br_raw_adjudication_event
+    description: >
+      Conformed adjudication / payment-decision events tied to a claim. Natural
+      key = claim_id + adjudication_event_id. Realizes DCM A/B/C/D/E/H.
+    columns:
+      - name: bronze_event_id
+        description: "Immutable per-event landing surrogate; MERGE unique_key. DCM D."
+        data_tests:
+          - not_null
+          - unique
+      - name: natural_key
+        description: "claim_id|adjudication_event_id identity used for dedupe. DCM D."
+        data_tests:
+          - not_null
+      - name: payload_hash
+        description: "Deterministic content hash of the VARIANT payload. DCM D."
+        data_tests:
+          - not_null
+      - name: record_status
+        description: "VALID or QUARANTINE per DCM E data-quality rules."
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['VALID', 'QUARANTINE']
+      - name: claim_id
+        description: "Business claim identifier (required key)."
+      - name: adjudication_event_id
+        description: "Adjudication event identifier (required key)."
+      - name: adjudication_status
+        description: "Adjudication outcome (e.g. PAID, DENIED, PENDED)."
+      - name: denial_reason_code
+        description: "Denial reason code when denied."
+      - name: allowed_amount
+        description: "Allowed amount; paid_amount must not exceed it."
+      - name: paid_amount
+        description: "Paid amount; negative only allowed on adjustment/reversal/void events."
+      - name: business_event_ts
+        description: "Adjudication event timestamp; incremental watermark column. DCM C."
+      - name: batch_id
+        description: "DCM B load batch identifier."
+      - name: load_id
+        description: "DCM B load identifier."
+      - name: pipeline_run_id
+        description: "DCM B pipeline run identifier."
+      - name: is_reprocessed
+        description: "DCM G flag: row produced by a reprocessing run."
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns:
+            - natural_key
+            - payload_hash

@@ -1,0 +1,14 @@
+status_code,status_name,is_denied,is_adjustment,is_void,is_reversal
+SUBMITTED,Submitted,false,false,false,false
+ACCEPTED,Accepted for Processing,false,false,false,false
+PENDED,Pended for Review,false,false,false,false
+PAID,Paid,false,false,false,false
+PARTIAL,Partially Paid,false,false,false,false
+DENIED,Denied,true,false,false,false
+REJECTED,Rejected,true,false,false,false
+ADJUSTED,Adjusted,false,true,false,false
+VOIDED,Voided,false,false,true,false
+REVERSED,Reversed,false,false,false,true
+RECOUPED,Recouped,false,true,false,false
+APPEALED,Appealed,false,false,false,false
+REPROCESSED,Reprocessed,false,true,false,false

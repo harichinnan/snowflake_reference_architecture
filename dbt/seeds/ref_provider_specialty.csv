@@ -1,0 +1,23 @@
+specialty_code,specialty_name,taxonomy_code
+FM,Family Medicine,207Q00000X
+IM,Internal Medicine,207R00000X
+PED,Pediatrics,208000000X
+CARD,Cardiology,207RC0000X
+ENDO,Endocrinology,207RE0101X
+NEPH,Nephrology,207RN0300X
+PULM,Pulmonary Disease,207RP1001X
+ONC,Hematology Oncology,207RH0000X
+PSY,Psychiatry,2084P0800X
+OBGYN,Obstetrics and Gynecology,207V00000X
+EM,Emergency Medicine,207P00000X
+ORTHO,Orthopaedic Surgery,207X00000X
+GS,General Surgery,208600000X
+RAD,Diagnostic Radiology,2085R0202X
+PATH,Pathology,207ZP0102X
+ANES,Anesthesiology,207L00000X
+DERM,Dermatology,207N00000X
+NEU,Neurology,2084N0400X
+GASTRO,Gastroenterology,207RG0100X
+PHARM,Pharmacy,183500000X
+NP,Nurse Practitioner,363L00000X
+PA,Physician Assistant,363A00000X

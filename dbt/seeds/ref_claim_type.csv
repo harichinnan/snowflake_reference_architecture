@@ -1,0 +1,13 @@
+claim_type_code,claim_type_name,setting
+PROF,Professional Claim,OUTPATIENT
+INST_IP,Institutional Inpatient Claim,INPATIENT
+INST_OP,Institutional Outpatient Claim,OUTPATIENT
+DENTAL,Dental Claim,OUTPATIENT
+RX,Pharmacy Claim,PHARMACY
+DME,Durable Medical Equipment Claim,OUTPATIENT
+VISION,Vision Claim,OUTPATIENT
+BEHAV,Behavioral Health Claim,OUTPATIENT
+HOME,Home Health Claim,HOME
+HOSPICE,Hospice Claim,HOSPICE
+SNF,Skilled Nursing Facility Claim,INPATIENT
+LAB,Laboratory Claim,OUTPATIENT

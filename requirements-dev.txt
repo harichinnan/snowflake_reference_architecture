@@ -1,0 +1,38 @@
+# =============================================================================
+# snowflake-claims-platform :: local dev toolchain (single virtualenv)
+# -----------------------------------------------------------------------------
+# Install into ./.venv with:  make venv   (or: pip install -r requirements-dev.txt)
+#
+# IMPORTANT — Python version:
+#   Use Python 3.13. dbt-core's `mashumaro` dependency is NOT yet compatible
+#   with Python 3.14 (raises UnserializableField on import). 3.13 is the newest
+#   interpreter the full toolchain (dbt + Snowflake CLI) supports today.
+#
+# IMPORTANT — pin reconciliation:
+#   `snowflake-cli` hard-pins click==8.1.8 and protobuf<6, while dbt-core's
+#   metadata prefers newer. Those pins below keep BOTH tools working at runtime
+#   in one venv (verified). `pip check` will print metadata warnings for dbt's
+#   click/protobuf bounds — these are advisory; dbt runs fine on these versions.
+# =============================================================================
+
+# Transformation / modeling
+dbt-snowflake==1.11.5          # pulls dbt-core 1.11.x
+
+# Snowflake CLI (`snow`) — PUT, COPY INTO, running setup SQL, connection mgmt
+snowflake-cli==3.20.0
+
+# Synthetic data generator (generator itself is stdlib-only; Faker optional)
+faker
+
+# Fallback custom MCP server
+mcp
+snowflake-connector-python
+python-dotenv
+
+# --- Pins to make dbt + snowflake-cli coexist in one venv (see note above) ---
+click==8.1.8                   # snowflake-cli hard requirement; dbt tolerates it
+protobuf==5.29.6               # snowflake-cli hard requirement; dbt tolerates it
+
+# --- Optional local quality tooling (uncomment to enable `make lint`) --------
+# sqlfluff
+# ruff

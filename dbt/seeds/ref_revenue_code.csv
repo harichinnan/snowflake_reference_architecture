@@ -1,0 +1,24 @@
+revenue_code,revenue_name
+0100,All Inclusive Room and Board
+0110,Room and Board Private
+0120,Room and Board Semi-Private Two Bed
+0200,Intensive Care Unit
+0250,Pharmacy General
+0260,IV Therapy
+0270,Medical Surgical Supplies
+0300,Laboratory General
+0320,Radiology Diagnostic
+0360,Operating Room Services
+0370,Anesthesia
+0410,Respiratory Services
+0420,Physical Therapy
+0430,Occupational Therapy
+0440,Speech Therapy
+0450,Emergency Room General
+0480,Cardiology
+0610,Magnetic Resonance Imaging
+0636,Drugs Requiring Detailed Coding
+0710,Recovery Room
+0762,Observation Room
+0900,Behavioral Health Treatment Services
+0940,Other Therapeutic Services

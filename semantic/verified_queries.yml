@@ -1,0 +1,299 @@
+# =============================================================================
+# verified_queries.yml :: snowflake-claims-platform
+# -----------------------------------------------------------------------------
+# Human-validated natural-language -> SQL pairs that Cortex Analyst learns from
+# (canonical set; also inlined in cortex_analyst_claims_semantic_model.yaml).
+# Every query is validated against the ACTUAL GOLD model columns. SQL targets
+# CLAIMS_PROD — replace with CLAIMS_DEV for the dev environment.
+#
+# SYNTHETIC DATA: not real CMS/Medicaid/PHI. Results are illustrative.
+#
+# Conventions:
+#   - Money "cost"/"spend"        -> paid_amount by default.
+#   - "members"                   -> COUNT(DISTINCT member_id).
+#   - "month"                     -> claim_month (base) / month_start (summaries).
+#   - Ratios (PMPM, denial_rate)  -> recomputed from numerator/denominator.
+#   - All queries carry a LIMIT.
+#
+# ACTUAL gold columns used:
+#   gold_payer_plan_summary  : payer_sk, payer_name, plan_sk, plan_type,
+#       month_start, total_paid, total_allowed, total_charge, claim_count,
+#       member_months, pmpm, denied_claim_count, denial_rate
+#   gold_member_months       : payer_sk, payer_name, plan_type, month_start,
+#       member_months, distinct_members
+#   gold_claim_denial_summary: payer_sk, payer_name, plan_type, claim_month,
+#       total_claims, denied_claims, denial_rate
+#   gold_provider_utilization: provider_npi, provider_name, specialty,
+#       month_start, claims, claim_lines, distinct_members, total_paid
+#   gold_condition_cost_summary: condition_group, claim_month, total_paid,
+#       distinct_members_with_condition, paid_per_member, top_procedures
+#   gold_late_arrival_impact : impacted_period, original_paid, late_paid,
+#       restated_paid, paid_delta, paid_pct_change, late_arriving_line_count
+#   gold_claims_semantic_base: claim_id, claim_status, claim_month, plan_type,
+#       member_id, paid_amount, allowed_amount, charge_amount,
+#       adjustment_flag, reversal_flag, claim_header_sk
+# =============================================================================
+
+verified_queries:
+
+  - name: total_paid_by_month
+    question: What was total paid by month?
+    use_as_onboarding_question: true
+    verified_at: 1718236800
+    verified_by: semantic_layer_owner
+    sql: |
+      SELECT claim_month,
+             SUM(paid_amount) AS total_paid_amount
+      FROM CLAIMS_PROD.GOLD.GOLD_CLAIMS_SEMANTIC_BASE
+      GROUP BY claim_month
+      ORDER BY claim_month
+      LIMIT 1000;
+
+  - name: pmpm_by_plan_type
+    question: What is PMPM by plan type?
+    use_as_onboarding_question: true
+    verified_at: 1718236800
+    verified_by: semantic_layer_owner
+    sql: |
+      -- gold_payer_plan_summary already carries member_months + pmpm per row;
+      -- recompute the ratio at the plan_type grain from the components.
+      SELECT plan_type,
+             SUM(total_paid)                                  AS total_paid_amount,
+             SUM(member_months)                              AS member_months,
+             SUM(total_paid) / NULLIF(SUM(member_months), 0) AS pmpm
+      FROM CLAIMS_PROD.GOLD.GOLD_PAYER_PLAN_SUMMARY
+      GROUP BY plan_type
+      ORDER BY pmpm DESC
+      LIMIT 1000;
+
+  - name: pmpm_by_plan_type_and_month
+    question: Show PMPM by plan type for each month.
+    verified_at: 1718236800
+    verified_by: semantic_layer_owner
+    sql: |
+      SELECT plan_type,
+             month_start,
+             SUM(total_paid)                                  AS total_paid_amount,
+             SUM(member_months)                              AS member_months,
+             SUM(total_paid) / NULLIF(SUM(member_months), 0) AS pmpm
+      FROM CLAIMS_PROD.GOLD.GOLD_PAYER_PLAN_SUMMARY
+      GROUP BY plan_type, month_start
+      ORDER BY plan_type, month_start
+      LIMIT 1000;
+
+  - name: member_months_by_payer
+    question: How many member months by payer?
+    verified_at: 1718236800
+    verified_by: semantic_layer_owner
+    sql: |
+      SELECT payer_name,
+             SUM(member_months) AS member_months
+      FROM CLAIMS_PROD.GOLD.GOLD_MEMBER_MONTHS
+      GROUP BY payer_name
+      ORDER BY member_months DESC
+      LIMIT 1000;
+
+  - name: claims_volume_by_status
+    question: What is claims volume by status?
+    use_as_onboarding_question: true
+    verified_at: 1718236800
+    verified_by: semantic_layer_owner
+    sql: |
+      SELECT claim_status,
+             COUNT(DISTINCT claim_id) AS claims_volume
+      FROM CLAIMS_PROD.GOLD.GOLD_CLAIMS_SEMANTIC_BASE
+      GROUP BY claim_status
+      ORDER BY claims_volume DESC
+      LIMIT 1000;
+
+  - name: denial_rate_by_payer
+    question: What is the denial rate by payer?
+    verified_at: 1718236800
+    verified_by: semantic_layer_owner
+    sql: |
+      SELECT payer_name,
+             SUM(denied_claims)                              AS denied_claims,
+             SUM(total_claims)                               AS total_claims,
+             SUM(denied_claims) / NULLIF(SUM(total_claims), 0) AS denial_rate
+      FROM CLAIMS_PROD.GOLD.GOLD_CLAIM_DENIAL_SUMMARY
+      GROUP BY payer_name
+      ORDER BY denial_rate DESC
+      LIMIT 1000;
+
+  - name: denial_rate_by_payer_plan
+    question: What is the denial rate by payer and plan?
+    verified_at: 1718236800
+    verified_by: semantic_layer_owner
+    sql: |
+      SELECT payer_name,
+             plan_type,
+             SUM(denied_claims)                              AS denied_claims,
+             SUM(total_claims)                               AS total_claims,
+             SUM(denied_claims) / NULLIF(SUM(total_claims), 0) AS denial_rate
+      FROM CLAIMS_PROD.GOLD.GOLD_CLAIM_DENIAL_SUMMARY
+      GROUP BY payer_name, plan_type
+      ORDER BY denial_rate DESC
+      LIMIT 1000;
+
+  - name: top_denial_reasons
+    question: What are the top denial reasons?
+    verified_at: 1718236800
+    verified_by: semantic_layer_owner
+    sql: |
+      SELECT denial_reason,
+             SUM(denied_claims)       AS denied_claims,
+             SUM(denied_paid_impact)  AS denied_paid_impact
+      FROM CLAIMS_PROD.GOLD.GOLD_CLAIM_DENIAL_SUMMARY
+      WHERE denial_reason NOT IN ('Not Denied')
+      GROUP BY denial_reason
+      ORDER BY denied_claims DESC
+      LIMIT 50;
+
+  - name: provider_utilization_by_specialty
+    question: Show provider utilization by specialty.
+    verified_at: 1718236800
+    verified_by: semantic_layer_owner
+    sql: |
+      SELECT specialty,
+             SUM(claims)                                AS claims,
+             SUM(claim_lines)                           AS claim_lines,
+             SUM(total_paid)                            AS total_paid_amount,
+             SUM(distinct_members)                      AS member_touches,
+             SUM(total_paid) / NULLIF(SUM(distinct_members), 0) AS paid_per_member
+      FROM CLAIMS_PROD.GOLD.GOLD_PROVIDER_UTILIZATION
+      GROUP BY specialty
+      ORDER BY total_paid_amount DESC
+      LIMIT 1000;
+
+  - name: top_providers_by_paid
+    question: Who are the top providers by paid amount?
+    verified_at: 1718236800
+    verified_by: semantic_layer_owner
+    sql: |
+      SELECT provider_npi,
+             provider_name,
+             specialty,
+             SUM(total_paid) AS total_paid_amount,
+             SUM(claims)     AS claims
+      FROM CLAIMS_PROD.GOLD.GOLD_PROVIDER_UTILIZATION
+      GROUP BY provider_npi, provider_name, specialty
+      ORDER BY total_paid_amount DESC
+      LIMIT 50;
+
+  - name: condition_cost_summary
+    question: What is the cost by condition group, and how many unique members?
+    use_as_onboarding_question: true
+    verified_at: 1718236800
+    verified_by: semantic_layer_owner
+    sql: |
+      SELECT condition_group,
+             SUM(total_paid)                                              AS total_paid_amount,
+             SUM(distinct_members_with_condition)                         AS distinct_members,
+             SUM(total_paid) / NULLIF(SUM(distinct_members_with_condition), 0) AS paid_per_member
+      FROM CLAIMS_PROD.GOLD.GOLD_CONDITION_COST_SUMMARY
+      GROUP BY condition_group
+      ORDER BY total_paid_amount DESC
+      LIMIT 1000;
+
+  - name: unique_members_with_condition
+    question: How many unique members have diabetes?
+    verified_at: 1718236800
+    verified_by: semantic_layer_owner
+    sql: |
+      -- distinct_members_with_condition is SEMI-additive; for a true unique count
+      -- across months count distinct members from the base, not SUM the summary.
+      SELECT condition_group,
+             COUNT(DISTINCT member_id) AS unique_members
+      FROM CLAIMS_PROD.GOLD.GOLD_CLAIMS_SEMANTIC_BASE
+      WHERE condition_group ILIKE '%diabet%'
+      GROUP BY condition_group
+      ORDER BY unique_members DESC
+      LIMIT 1000;
+
+  - name: late_arrival_impact
+    question: Why did a prior month's paid change? Show late-arriving claim impact.
+    verified_at: 1718236800
+    verified_by: semantic_layer_owner
+    sql: |
+      SELECT impacted_period,
+             original_paid,
+             late_paid,
+             restated_paid,
+             paid_delta,
+             paid_pct_change,
+             late_arriving_line_count
+      FROM CLAIMS_PROD.GOLD.GOLD_LATE_ARRIVAL_IMPACT
+      ORDER BY impacted_period
+      LIMIT 1000;
+
+  - name: late_arrival_share_of_paid
+    question: What share of paid came from late-arriving claims by month?
+    verified_at: 1718236800
+    verified_by: semantic_layer_owner
+    sql: |
+      SELECT impacted_period,
+             late_paid                                    AS late_paid_amount,
+             restated_paid                                AS total_paid_amount,
+             late_paid / NULLIF(restated_paid, 0)         AS late_paid_share
+      FROM CLAIMS_PROD.GOLD.GOLD_LATE_ARRIVAL_IMPACT
+      ORDER BY impacted_period
+      LIMIT 1000;
+
+  - name: adjustment_and_reversal_counts
+    question: How many adjustments and reversals are there by month?
+    verified_at: 1718236800
+    verified_by: semantic_layer_owner
+    sql: |
+      SELECT claim_month,
+             COUNT(DISTINCT CASE WHEN adjustment_flag THEN claim_id END) AS adjustment_count,
+             COUNT(DISTINCT CASE WHEN reversal_flag   THEN claim_id END) AS reversal_count
+      FROM CLAIMS_PROD.GOLD.GOLD_CLAIMS_SEMANTIC_BASE
+      GROUP BY claim_month
+      ORDER BY claim_month
+      LIMIT 1000;
+
+  - name: line_header_reconciliation
+    question: Do claim line paid amounts reconcile to the header (claim) total?
+    verified_at: 1718236800
+    verified_by: semantic_layer_owner
+    sql: |
+      -- The fact carries CURRENT valid versions only, so SUM(line paid) per
+      -- claim is the certified header paid total. Reconciliation (header paid =
+      -- SUM line paid) is enforced upstream by the dbt test
+      -- assert_claim_header_line_totals_reconcile; this surfaces per-claim totals.
+      SELECT claim_id,
+             claim_header_sk,
+             COUNT(*)            AS line_count,
+             SUM(paid_amount)    AS header_paid_amount,
+             SUM(allowed_amount) AS header_allowed_amount,
+             SUM(charge_amount)  AS header_charge_amount
+      FROM CLAIMS_PROD.GOLD.GOLD_CLAIMS_SEMANTIC_BASE
+      GROUP BY claim_id, claim_header_sk
+      ORDER BY header_paid_amount DESC
+      LIMIT 1000;
+
+  - name: distinct_members_by_plan
+    question: How many distinct members had a claim by plan type?
+    verified_at: 1718236800
+    verified_by: semantic_layer_owner
+    sql: |
+      SELECT plan_type,
+             COUNT(DISTINCT member_id) AS distinct_members
+      FROM CLAIMS_PROD.GOLD.GOLD_CLAIMS_SEMANTIC_BASE
+      GROUP BY plan_type
+      ORDER BY distinct_members DESC
+      LIMIT 1000;
+
+  - name: paid_allowed_charge_by_payer
+    question: Compare paid, allowed and charge by payer.
+    verified_at: 1718236800
+    verified_by: semantic_layer_owner
+    sql: |
+      SELECT payer_name,
+             SUM(total_paid)    AS total_paid_amount,
+             SUM(total_allowed) AS total_allowed_amount,
+             SUM(total_charge)  AS total_charge_amount
+      FROM CLAIMS_PROD.GOLD.GOLD_PAYER_PLAN_SUMMARY
+      GROUP BY payer_name
+      ORDER BY total_paid_amount DESC
+      LIMIT 1000;

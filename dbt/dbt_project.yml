@@ -1,0 +1,159 @@
+# =============================================================================
+# dbt_project.yml
+# snowflake-claims-platform :: dbt Core (dbt-snowflake)
+#
+# 100% Snowflake-only, synthetic claims reference architecture.
+#
+# Database/schema strategy:
+#   - Target databases: CLAIMS_DEV (dev/ci), CLAIMS_PROD (prod) -- set per
+#     target in profiles.yml (database key).
+#   - Schemas are pinned per model directory below via the `+schema` config.
+#     We deliberately use FULL schema names (e.g. SILVER_CANONICAL) and rely on
+#     the `generate_schema_name` default override (see macros) OR the built-in
+#     behavior. To get *exact* schema names (no <target_schema>_<schema>
+#     concatenation) this project expects a `generate_schema_name` macro that
+#     returns the custom schema verbatim. See macros/generate_schema_name.sql
+#     if present; otherwise dbt's default prefixes the target schema.
+#
+# Layers (medallion + canonical/dimensional split):
+#   raw (external, COPY INTO -> BRONZE.BR_RAW_*) -> bronze -> silver_canonical
+#   -> silver_dimensional -> gold ; plus control + audit cross-cutting.
+# =============================================================================
+
+name: 'claims_platform'
+version: '1.0.0'
+config-version: 2
+
+# Profile lives in profiles.yml (see profiles.yml.example). dev/prod/ci targets.
+profile: 'claims_platform'
+
+# -----------------------------------------------------------------------------
+# Project paths
+# -----------------------------------------------------------------------------
+model-paths: ["models"]
+analysis-paths: ["analyses"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+snapshot-paths: ["snapshots"]
+
+clean-targets:
+  - "target"
+  - "dbt_packages"
+  - "logs"
+
+# -----------------------------------------------------------------------------
+# Quoting
+#   Snowflake stores unquoted identifiers in UPPERCASE. We keep database/schema
+#   identifiers unquoted so env-driven UPPERCASE names resolve cleanly, and we
+#   quote column identifiers to preserve seed/source column casing where needed.
+# -----------------------------------------------------------------------------
+quoting:
+  database: false
+  schema: false
+  identifier: false
+
+# -----------------------------------------------------------------------------
+# Project variables (overridable via --vars or per-target in CI)
+# -----------------------------------------------------------------------------
+vars:
+  # Default number of days to look back from the stored watermark when building
+  # incremental models. Used by incremental_watermark_filter / apply_lookback_window
+  # when CONTROL.PIPELINE_CONFIG has no row for the pipeline.
+  lookback_default_days: 3
+
+  # Default grace window for late-arriving facts (used by canonical merge logic).
+  late_arrival_default_days: 7
+
+  # Logical environment label, surfaced into audit columns / lineage events.
+  # Override per target: dbt build --vars '{env: prod}'
+  env: 'dev'
+
+  # Control / audit object references (fully-qualified-ish; database resolved
+  # from target). Macros read these so the names live in one place.
+  control_schema: 'CONTROL'
+  audit_schema: 'AUDIT'
+  control_pipeline_config: 'PIPELINE_CONFIG'
+  control_watermark_state: 'WATERMARK_STATE'
+  control_pipeline_run: 'PIPELINE_RUN'
+  audit_quarantine_record: 'QUARANTINE_RECORD'
+  audit_data_quality_result: 'DATA_QUALITY_RESULT'
+  audit_lineage_event: 'LINEAGE_EVENT'
+
+# -----------------------------------------------------------------------------
+# Warehouse default
+#   dbt transform runs use WH_CLAIMS_TRANSFORM; CI uses WH_CLAIMS_CI. The
+#   warehouse is set in profiles.yml per target. Heavy models may override
+#   per-config with +snowflake_warehouse.
+# -----------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
+# Seeds
+#   Reference data lands in the RAW schema under a SEED namespace. We pin the
+#   schema so seeds are reproducible across targets. Column types left to
+#   inference except where a seed needs explicit typing.
+# -----------------------------------------------------------------------------
+seeds:
+  claims_platform:
+    +schema: RAW
+    +quote_columns: false
+    +full_refresh: true
+    # Tag so we can `dbt seed --select tag:reference` independently.
+    +tags: ['reference', 'seed']
+
+# -----------------------------------------------------------------------------
+# Models
+#   on_schema_change: append_new_columns is the safe default for incrementals;
+#   bronze/canonical override to sync where appropriate.
+# -----------------------------------------------------------------------------
+models:
+  claims_platform:
+    # Global defaults
+    +on_schema_change: append_new_columns
+    +persist_docs:
+      relation: true
+      columns: true
+
+    # ----- CONTROL ---------------------------------------------------------
+    # Control models (run state projections, config snapshots) materialized as
+    # tables in the CONTROL schema.
+    control:
+      +schema: CONTROL
+      +materialized: table
+      +tags: ['control']
+
+    # ----- BRONZE ----------------------------------------------------------
+    # Bronze dbt models read RAW staged data / BR_RAW_* landing tables and are
+    # incremental (append/merge on bronze_event_id) into the BRONZE schema.
+    bronze:
+      +schema: BRONZE
+      +materialized: incremental
+      +incremental_strategy: append
+      +on_schema_change: sync_all_columns
+      +tags: ['bronze']
+
+    # ----- SILVER (canonical) ---------------------------------------------
+    # Conformed, deduplicated canonical event/entity models. Incremental MERGE
+    # keyed on surrogate/natural keys; late-arriving data handled via lookback.
+    silver_canonical:
+      +schema: SILVER_CANONICAL
+      +materialized: incremental
+      +incremental_strategy: merge
+      +on_schema_change: append_new_columns
+      +tags: ['silver', 'canonical']
+
+    # ----- SILVER (dimensional) -------------------------------------------
+    # Conformed dimensions + fact staging. Rebuilt as tables (small enough,
+    # SCD handled via snapshots/effective dates within the model).
+    silver_dimensional:
+      +schema: SILVER_DIMENSIONAL
+      +materialized: table
+      +tags: ['silver', 'dimensional']
+
+    # ----- GOLD ------------------------------------------------------------
+    # Presentation marts. Default to table for performance; analytic / thin
+    # passthrough models can override to view via +materialized: view.
+    gold:
+      +schema: GOLD
+      +materialized: table
+      +tags: ['gold', 'mart']

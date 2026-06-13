@@ -1,0 +1,15 @@
+adjustment_type_code,adjustment_type_name,affects_payment
+CO,Contractual Obligation,true
+PR,Patient Responsibility,true
+OA,Other Adjustment,true
+PI,Payer Initiated Reduction,true
+CR,Correction and Reversal,true
+DEDUCT,Deductible Applied,true
+COINS,Coinsurance Applied,true
+COPAY,Copay Applied,true
+WRITEOFF,Provider Writeoff,true
+RECOUP,Recoupment,true
+INTEREST,Interest Payment,true
+WITHHOLD,Payment Withhold,true
+INFO,Informational Only,false
+NOOP,No Payment Impact,false

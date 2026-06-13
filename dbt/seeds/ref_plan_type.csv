@@ -1,0 +1,16 @@
+plan_type_code,plan_type_name,payer_category
+HMO,Health Maintenance Organization,COMMERCIAL
+PPO,Preferred Provider Organization,COMMERCIAL
+EPO,Exclusive Provider Organization,COMMERCIAL
+POS,Point of Service Plan,COMMERCIAL
+HDHP,High Deductible Health Plan,COMMERCIAL
+MA,Medicare Advantage,MEDICARE
+MA_PD,Medicare Advantage with Drug,MEDICARE
+PDP,Medicare Part D Drug Plan,MEDICARE
+MEDIGAP,Medicare Supplement,MEDICARE
+FFS_MCARE,Medicare Fee for Service,MEDICARE
+MCD_MANAGED,Medicaid Managed Care,MEDICAID
+MCD_FFS,Medicaid Fee for Service,MEDICAID
+CHIP,Children Health Insurance Program,MEDICAID
+DUAL,Dual Eligible Special Needs Plan,MEDICARE
+EXCH,Marketplace Exchange Plan,COMMERCIAL

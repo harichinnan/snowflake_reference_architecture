@@ -1,0 +1,301 @@
+# =============================================================================
+# .github/workflows/dbt_pr_ci.yml
+# -----------------------------------------------------------------------------
+# Pull-request CI for the dbt project (dbt Core + dbt-snowflake).
+#
+# What this does on every PR that touches dbt/**:
+#   1. Builds the changed models into an ISOLATED, per-PR Snowflake schema
+#      (DBT_CI_PR_<pr-number>) in CLAIMS_DEV using the dedicated CI warehouse
+#      (WH_CLAIMS_CI), so PRs never collide with each other or with dev/prod.
+#   2. Prefers a STATE-BASED build (state:modified+ with --defer) using the
+#      manifest produced by the most recent main-branch CD run, falling back to
+#      a full build the first time (no prior manifest yet).
+#   3. Runs tests, uploads the run artifacts (manifest/run_results), and ALWAYS
+#      tears the ephemeral PR schema back down at the end.
+#
+# Auth model:
+#   Key-pair (SNOWFLAKE_JWT) is PREFERRED and is what this workflow wires up:
+#   the base64-encoded PKCS#8 private key is stored in the secret
+#   SNOWFLAKE_PRIVATE_KEY, decoded to a file, and pointed at by
+#   DBT_SNOWFLAKE_PRIVATE_KEY_PATH. Password auth is acceptable for a demo:
+#   set the secret SNOWFLAKE_PASSWORD and uncomment the password line in
+#   dbt/profiles.yml.example (the `ci` output) plus the export below.
+#
+# profiles.yml strategy:
+#   The committed dbt/profiles.yml.example is already 100% env_var()-driven.
+#   The cleanest path is therefore to COPY it to ~/.dbt/profiles.yml and export
+#   the DBT_SNOWFLAKE_* env vars it references. dbt reads ~/.dbt by default, so
+#   no DBT_PROFILES_DIR is needed. (Alternative: set DBT_PROFILES_DIR=dbt and
+#   commit profiles.yml — we avoid committing it to keep secrets out of git.)
+# =============================================================================
+
+name: dbt PR CI
+
+on:
+  pull_request:
+    paths:
+      - "dbt/**"
+      # Seeds live under dbt/seeds, already covered above. Add data_generator or
+      # other seed sources here if seed CSVs are generated outside dbt/.
+      # - "data_generator/**"
+
+# Cancel an in-flight run for the same PR when new commits are pushed.
+concurrency:
+  group: dbt-pr-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# Least-privilege token; we only read the repo and (optionally) artifacts.
+permissions:
+  contents: read
+
+env:
+  # ---- dbt / Snowflake connection (consumed by profiles.yml.example) --------
+  DBT_SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+  DBT_SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+  DBT_SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+  # The `ci` target hardcodes warehouse WH_CLAIMS_CI and database CLAIMS_DEV in
+  # profiles.yml.example; we still surface them as env for the teardown step.
+  SNOWFLAKE_WAREHOUSE: WH_CLAIMS_CI
+  SNOWFLAKE_DATABASE: CLAIMS_DEV
+  # Pin dbt-snowflake. Bump deliberately after reading the changelog.
+  DBT_SNOWFLAKE_VERSION: "1.8.4"
+  # Where dbt reads/writes its working directory.
+  DBT_DIR: dbt
+
+jobs:
+  dbt-ci:
+    runs-on: ubuntu-latest
+    # Use a GitHub Environment to attach Snowflake secrets / approvals if desired.
+    # environment: ci
+    defaults:
+      run:
+        working-directory: dbt
+    steps:
+      # -----------------------------------------------------------------------
+      # Checkout. fetch-depth: 0 gives full history so we *could* diff against
+      # main locally if we ever switch from artifact-based to git-based state.
+      # -----------------------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      # -----------------------------------------------------------------------
+      # Install dbt-snowflake (pinned) and project packages.
+      # -----------------------------------------------------------------------
+      - name: Install dbt-snowflake
+        run: |
+          python -m pip install --upgrade pip
+          pip install "dbt-snowflake==${DBT_SNOWFLAKE_VERSION}"
+          dbt --version
+
+      # -----------------------------------------------------------------------
+      # Render the env-driven profile into ~/.dbt/profiles.yml. The example is
+      # already pure env_var(), so this is just a copy. Secrets are injected via
+      # exported env vars below, never written into a committed file.
+      # -----------------------------------------------------------------------
+      - name: Generate profiles.yml from env-driven example
+        run: |
+          mkdir -p "${HOME}/.dbt"
+          cp profiles.yml.example "${HOME}/.dbt/profiles.yml"
+
+      # -----------------------------------------------------------------------
+      # Key-pair auth: decode the base64 PKCS#8 key secret to a file and point
+      # dbt at it. If you use password auth instead, skip this step and export
+      # DBT_SNOWFLAKE_CI_PASSWORD (and uncomment the password line in the `ci`
+      # output of profiles.yml.example).
+      # -----------------------------------------------------------------------
+      - name: Write Snowflake private key (key-pair auth)
+        if: ${{ secrets.SNOWFLAKE_PRIVATE_KEY != '' }}
+        run: |
+          mkdir -p "${HOME}/.ssh"
+          echo "${{ secrets.SNOWFLAKE_PRIVATE_KEY }}" | base64 --decode > "${HOME}/.ssh/snowflake_ci_key.p8"
+          chmod 600 "${HOME}/.ssh/snowflake_ci_key.p8"
+          # Surface the path for profiles.yml env_var('DBT_SNOWFLAKE_PRIVATE_KEY_PATH').
+          echo "DBT_SNOWFLAKE_PRIVATE_KEY_PATH=${HOME}/.ssh/snowflake_ci_key.p8" >> "$GITHUB_ENV"
+          # Optional encrypted-key passphrase.
+          echo "DBT_SNOWFLAKE_CI_PRIVATE_KEY_PASSPHRASE=${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}" >> "$GITHUB_ENV"
+
+      # -----------------------------------------------------------------------
+      # Define the ISOLATED per-PR schema. profiles.yml reads DBT_CI_SCHEMA for
+      # the `ci` target, so every PR builds into its own namespace.
+      # -----------------------------------------------------------------------
+      - name: Set isolated PR schema
+        run: echo "DBT_CI_SCHEMA=DBT_CI_PR_${{ github.event.pull_request.number }}" >> "$GITHUB_ENV"
+
+      # -----------------------------------------------------------------------
+      # Password fallback wiring (demo). Uncomment if NOT using key-pair auth.
+      # -----------------------------------------------------------------------
+      # - name: Export Snowflake password (demo fallback)
+      #   run: echo "DBT_SNOWFLAKE_CI_PASSWORD=${{ secrets.SNOWFLAKE_PASSWORD }}" >> "$GITHUB_ENV"
+
+      - name: dbt deps
+        run: dbt deps
+
+      # -----------------------------------------------------------------------
+      # Seeds first (so referenced seed tables exist), then a compile to surface
+      # parse/compile errors early and produce a manifest for state selection.
+      # -----------------------------------------------------------------------
+      - name: dbt seed
+        run: dbt seed --target ci
+
+      - name: dbt compile
+        run: dbt compile --target ci
+
+      # -----------------------------------------------------------------------
+      # Try to fetch the prior production manifest (uploaded by dbt_main_cd.yml)
+      # to enable state-based, slim CI. If unavailable, we fall back to a full
+      # build. download-artifact only sees artifacts from THIS workflow, so for
+      # cross-workflow manifests we use the GitHub API to grab the latest
+      # 'dbt-prod-manifest' from the main CD workflow.
+      # -----------------------------------------------------------------------
+      - name: Fetch prior production manifest (for state selection)
+        id: prior_manifest
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p prior_manifest
+          # Find the most recent successful run of the main CD workflow.
+          RUN_ID="$(gh run list \
+            --workflow dbt_main_cd.yml \
+            --branch main \
+            --status success \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId' || true)"
+          if [ -z "${RUN_ID:-}" ] || [ "${RUN_ID}" = "null" ]; then
+            echo "No prior CD run found; will do a full build."
+            echo "have_manifest=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Download the artifact named 'dbt-prod-manifest' into prior_manifest/.
+          if gh run download "${RUN_ID}" \
+              --name dbt-prod-manifest \
+              --dir prior_manifest; then
+            if [ -f prior_manifest/manifest.json ]; then
+              echo "Found prior manifest from run ${RUN_ID}."
+              echo "have_manifest=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "Artifact downloaded but manifest.json missing; full build."
+              echo "have_manifest=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "Artifact download failed; full build."
+            echo "have_manifest=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # -----------------------------------------------------------------------
+      # State-based build: only modified models + downstream, deferring unbuilt
+      # upstream refs to the prod relations referenced by the prior manifest.
+      # -----------------------------------------------------------------------
+      - name: dbt build (state-based)
+        if: ${{ steps.prior_manifest.outputs.have_manifest == 'true' }}
+        run: |
+          dbt build \
+            --select state:modified+ \
+            --defer \
+            --state ./prior_manifest \
+            --target ci
+
+      # -----------------------------------------------------------------------
+      # Fallback full build the first time (or when manifest fetch failed).
+      # -----------------------------------------------------------------------
+      - name: dbt build (full, fallback)
+        if: ${{ steps.prior_manifest.outputs.have_manifest != 'true' }}
+        run: dbt build --target ci
+
+      # build already runs tests; this is an explicit safety net / clearer log.
+      - name: dbt test
+        run: dbt test --target ci
+
+      # -----------------------------------------------------------------------
+      # Upload run artifacts so reviewers (and the next PR's state selection if
+      # ever needed) can inspect the manifest and results.
+      # -----------------------------------------------------------------------
+      - name: Upload dbt artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: dbt-ci-artifacts-pr-${{ github.event.pull_request.number }}
+          path: |
+            dbt/target/manifest.json
+            dbt/target/run_results.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      # -----------------------------------------------------------------------
+      # ALWAYS tear down the ephemeral PR schema so CLAIMS_DEV doesn't accrue
+      # orphaned schemas. We use a dbt run-operation that issues a guarded
+      # DROP SCHEMA IF EXISTS ... CASCADE against the resolved CI schema.
+      #
+      # This relies on the inline macro below being available; the cleanest
+      # repo-friendly approach is to commit a macro, but to keep the workflow
+      # self-contained we drop via a tiny Python+connector step instead.
+      # -----------------------------------------------------------------------
+      - name: Drop ephemeral PR schema (teardown)
+        if: ${{ always() }}
+        env:
+          # Re-surface for the python step.
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_ROLE }}
+          SNOWFLAKE_PRIVATE_KEY_PASSPHRASE: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          pip install "snowflake-connector-python" >/dev/null
+          python - <<'PY'
+          import os, sys
+          import snowflake.connector
+          from cryptography.hazmat.primitives import serialization
+
+          schema = os.environ["DBT_CI_SCHEMA"]
+          database = os.environ.get("SNOWFLAKE_DATABASE", "CLAIMS_DEV")
+          warehouse = os.environ.get("SNOWFLAKE_WAREHOUSE", "WH_CLAIMS_CI")
+
+          conn_args = dict(
+              account=os.environ["SNOWFLAKE_ACCOUNT"],
+              user=os.environ["SNOWFLAKE_USER"],
+              role=os.environ.get("SNOWFLAKE_ROLE"),
+              warehouse=warehouse,
+              database=database,
+          )
+
+          # Prefer key-pair; fall back to password (demo) if key not present.
+          key_path = os.environ.get("DBT_SNOWFLAKE_PRIVATE_KEY_PATH")
+          if key_path and os.path.exists(key_path):
+              passphrase = os.environ.get("SNOWFLAKE_PRIVATE_KEY_PASSPHRASE") or None
+              with open(key_path, "rb") as fh:
+                  pkey = serialization.load_pem_private_key(
+                      fh.read(),
+                      password=passphrase.encode() if passphrase else None,
+                  )
+              conn_args["private_key"] = pkey.private_bytes(
+                  encoding=serialization.Encoding.DER,
+                  format=serialization.PrivateFormat.PKCS8,
+                  encryption_algorithm=serialization.NoEncryption(),
+              )
+          else:
+              pw = os.environ.get("SNOWFLAKE_PASSWORD")
+              if not pw:
+                  print("No key and no password available; skipping teardown.", file=sys.stderr)
+                  sys.exit(0)
+              conn_args["password"] = pw
+
+          ctx = snowflake.connector.connect(**conn_args)
+          try:
+              cur = ctx.cursor()
+              stmt = f'DROP SCHEMA IF EXISTS "{database}"."{schema}" CASCADE'
+              print("Executing:", stmt)
+              cur.execute(stmt)
+              print("Dropped ephemeral schema (if it existed).")
+          finally:
+              ctx.close()
+          PY

@@ -1,0 +1,89 @@
+# =============================================================================
+# sources.yml
+# snowflake-claims-platform :: dbt source definitions
+#
+# Three source families, all resolved against the target database
+# (CLAIMS_DEV / CLAIMS_PROD via {{ target.database }}):
+#
+#   - bronze  : BRONZE.BR_RAW_* landing tables (VARIANT payload + DCM columns)
+#               that COPY INTO from the RAW internal-stage loads populates.
+#   - control : CONTROL.* DCM operational tables (Source/Batch/Watermark/
+#               Idempotency/Reprocessing/SLA/Semantic/Contract domains).
+#   - audit   : AUDIT.* tables (Data Quality, Quarantine, Lineage domains).
+#
+# The CONTROL/AUDIT models read these sources so that the fully-qualified
+# names live in exactly one place. DCM domain tags (A-J) are noted inline.
+# =============================================================================
+version: 2
+
+sources:
+  # ---------------------------------------------------------------------------
+  # BRONZE landing tables -- DCM Domain A (Source) + B (Batch) + D (Idempotency)
+  # Populated by COPY INTO from the RAW internal stage. One landing table per
+  # claims sub-domain. All share the canonical landing contract (see columns).
+  # ---------------------------------------------------------------------------
+  - name: bronze
+    description: >
+      BRONZE landing tables. Immutable VARIANT payloads plus ingest/DCM metadata
+      produced by the RAW -> BRONZE COPY INTO. dbt bronze models standardize
+      these into the conformed BR_* models.
+    database: "{{ target.database }}"
+    schema: BRONZE
+    loader: COPY_INTO
+    # Freshness SLA (DCM Domain I) -- warn after 24h, error after 48h with no load.
+    config:
+      freshness:
+        warn_after: { count: 24, period: hour }
+        error_after: { count: 48, period: hour }
+      loaded_at_field: ingest_ts
+    tables:
+      - name: br_raw_claim_event
+        description: "Landing for claim header/line lifecycle events (submission, adjustment, void, reversal)."
+      - name: br_raw_eligibility_event
+        description: "Landing for member eligibility / coverage span events (including retro-active coverage)."
+      - name: br_raw_provider_event
+        description: "Landing for provider master events (keyed on NPI)."
+      - name: br_raw_pharmacy_event
+        description: "Landing for pharmacy (Rx) claim events."
+      - name: br_raw_adjudication_event
+        description: "Landing for adjudication / payment decision events tied to a claim."
+
+  # ---------------------------------------------------------------------------
+  # CONTROL operational tables -- DCM Domains A,B,C,D,G,I,J
+  # ---------------------------------------------------------------------------
+  - name: control
+    description: "CONTROL schema DCM operational tables (watermarks, config, batches, reprocessing, SLA, semantic registry, contracts)."
+    database: "{{ target.database }}"
+    schema: CONTROL
+    tables:
+      - name: pipeline_config       # DCM A/C -- per-pipeline lookback, late-arrival, SLA config
+        description: "Per-pipeline configuration: lookback_days, late_arrival_days, max_allowed_lag_hours, watermark column."
+      - name: watermark_state       # DCM C -- Watermark
+        description: "Last/prior successful watermark per pipeline; max watermark seen."
+      - name: pipeline_run          # DCM B -- Batch/run lifecycle
+        description: "Pipeline run ledger: run id, status, started/ended, rows processed."
+      - name: load_batch            # DCM B -- Batch
+        description: "Load batch registry mapping COPY INTO batches to runs and files."
+      - name: reprocessing_ledger   # DCM G -- Reprocessing
+        description: "Approved reprocessing requests: original/replacement batch, reason, scope, approvals, validation."
+      - name: pipeline_freshness_status  # DCM I -- SLA/Freshness
+        description: "Materialized freshness evaluation per pipeline (status, lag, last evaluated)."
+      - name: semantic_metric_registry   # DCM J -- Semantic
+        description: "Certified semantic metric definitions (business definition, calculation SQL, grain, owner)."
+      - name: data_contract         # DCM A -- Source contract
+        description: "Source data contracts: required fields, primary business keys, expected grain, schema version."
+
+  # ---------------------------------------------------------------------------
+  # AUDIT tables -- DCM Domains E (Data Quality), F (Quarantine), H (Lineage)
+  # ---------------------------------------------------------------------------
+  - name: audit
+    description: "AUDIT schema tables for data-quality results, quarantine records, and lineage events."
+    database: "{{ target.database }}"
+    schema: AUDIT
+    tables:
+      - name: data_quality_result   # DCM E -- Data Quality
+        description: "Per-test DQ results: model, test, severity, status, failed_row_count, run timestamp."
+      - name: quarantine_record     # DCM F -- Quarantine
+        description: "Rows routed out of the happy path with quarantine_reason and originating batch."
+      - name: lineage_event         # DCM H -- Lineage
+        description: "Model-to-model lineage / run events emitted during builds."

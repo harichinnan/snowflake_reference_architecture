@@ -1,0 +1,19 @@
+# =============================================================================
+# Synthetic Healthcare Claims Data Generator — dependencies
+# =============================================================================
+# This generator is intentionally built on the Python STANDARD LIBRARY ONLY so
+# it runs anywhere with a plain `python` interpreter (3.8+). No third-party
+# packages are required for normal operation.
+#
+# Faker is OPTIONAL. The generator imports it behind a try/except and falls back
+# to deterministic stdlib name/address synthesis when it is absent. Installing
+# it only changes the *flavor* of synthetic names/addresses, never the schema,
+# the counts, or the deterministic-with-seed behavior of structural data.
+#
+# To run with pure stdlib (recommended, zero installs):
+#     python generate_synthetic_claims.py --members 500 --out output/ --seed 42
+#
+# To optionally enrich synthetic names/addresses, uncomment the pin below:
+# -----------------------------------------------------------------------------
+# Faker==25.2.0    # OPTIONAL — synthetic names/addresses only; not required
+# =============================================================================
