@@ -263,6 +263,27 @@ make dbt-docs     # generate docs + lineage graph
 
 dbt models implement the DCM contracts: watermark-driven incrementals, `MERGE`-based idempotency, dedupe via `QUALIFY ROW_NUMBER()`, quarantine routing, and reconciliation tests. See [`docs/incremental_strategy.md`](docs/incremental_strategy.md).
 
+### Running dbt **inside** Snowflake (dbt Projects on Snowflake)
+
+The commands above run **local dbt Core** (from `./.venv`). For the fully
+Snowflake-native path, the same project is deployed as a schema-level
+`DBT PROJECT` object and executed **server-side** with `EXECUTE DBT PROJECT` —
+no external runner, schedulable with a native **Task**:
+
+```bash
+make sf-setup                      # includes 013: external access integration + DBT schema + Task
+make dbt-sf-deploy DBT_TARGET=dev  # snow dbt deploy -> creates/updates the DBT PROJECT object
+make dbt-sf-deps                   # EXECUTE DBT PROJECT ... 'deps'  (server-side)
+make dbt-sf-build DBT_TARGET=dev   # EXECUTE DBT PROJECT ... 'build' (server-side)
+```
+
+dbt runs **inside Snowflake** as `CLAIMS_TRANSFORMER` on `WH_CLAIMS_TRANSFORM`,
+using the committed, credential-free [`dbt/snowflake_profiles/profiles.yml`](dbt/snowflake_profiles/profiles.yml)
+(the connection is the Snowflake session). Note Snowflake runs dbt **1.10.15**
+server-side, not 1.11. Native CD lives in
+[`.github/workflows/dbt_snowflake_native_cd.yml`](.github/workflows/dbt_snowflake_native_cd.yml).
+Full guide: [`docs/dbt_on_snowflake.md`](docs/dbt_on_snowflake.md).
+
 ---
 
 ## CI/CD behavior
@@ -359,6 +380,7 @@ Configure MCP-compatible hosts (Claude Desktop, Cursor, VS Code) to connect to t
 - [`docs/data_control_model.md`](docs/data_control_model.md)
 - [`docs/incremental_strategy.md`](docs/incremental_strategy.md)
 - [`docs/ci_cd.md`](docs/ci_cd.md)
+- [`docs/dbt_on_snowflake.md`](docs/dbt_on_snowflake.md) — run dbt natively inside Snowflake
 - [`docs/cortex_mcp_setup.md`](docs/cortex_mcp_setup.md)
 - [`docs/workbooks.md`](docs/workbooks.md)
 - [`docs/runbook.md`](docs/runbook.md)

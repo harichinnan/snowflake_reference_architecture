@@ -1,0 +1,49 @@
+# =============================================================================
+# profiles.yml  ::  for "dbt Projects on Snowflake" (EXECUTE DBT PROJECT)
+# -----------------------------------------------------------------------------
+# This profile is for dbt running INSIDE Snowflake (server-side), NOT local dbt
+# Core. It is SAFE TO COMMIT because it contains NO credentials: when a DBT
+# PROJECT object runs, the connection is the current Snowflake SESSION. You only
+# declare type/database/role/schema/warehouse.
+#
+# Deploy with:
+#   snow dbt deploy CLAIMS_DBT_PROJECT \
+#     --source dbt \
+#     --profiles-dir dbt/snowflake_profiles \
+#     --default-target dev
+#
+# The profile name MUST match `profile:` in dbt/dbt_project.yml (claims_platform).
+#
+# IMPORTANT:
+#   * The target `schema` below must EXIST before CREATE DBT PROJECT / deploy.
+#     setup script 005 creates CONTROL, so we default there. Models route to
+#     their own schemas (BRONZE/SILVER_*/GOLD/...) via generate_schema_name.
+#   * The `role` here is the identity EXECUTE DBT PROJECT runs as; it must have
+#     privileges to build in all target schemas (CLAIMS_TRANSFORMER does).
+#   * Server-side dbt runs a Snowflake-supported dbt version (e.g. 1.10.15),
+#     set via DBT_VERSION on the project object — NOT necessarily your local
+#     dbt version. See docs/dbt_on_snowflake.md.
+#   * Data is SYNTHETIC — not real CMS/Medicare/Medicaid/PHI.
+# =============================================================================
+
+claims_platform:
+  target: dev
+  outputs:
+
+    # DEV -> CLAIMS_DEV, built by CLAIMS_TRANSFORMER on WH_CLAIMS_TRANSFORM.
+    dev:
+      type: snowflake
+      database: CLAIMS_DEV
+      role: CLAIMS_TRANSFORMER
+      warehouse: WH_CLAIMS_TRANSFORM
+      schema: CONTROL
+      threads: 8
+
+    # PROD -> CLAIMS_PROD.
+    prod:
+      type: snowflake
+      database: CLAIMS_PROD
+      role: CLAIMS_TRANSFORMER
+      warehouse: WH_CLAIMS_TRANSFORM
+      schema: CONTROL
+      threads: 12

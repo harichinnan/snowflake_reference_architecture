@@ -133,6 +133,42 @@ dbt-parse: ## Parse/compile the dbt project (no warehouse writes)
 dbt-docs: ## Generate dbt docs + lineage graph
 	cd $(DBT_DIR) && $(CURDIR)/$(DBT) docs generate --target $(DBT_TARGET)
 
+# ===== dbt Projects on Snowflake (dbt runs INSIDE Snowflake) =================
+# Deploys the dbt project as a native DBT PROJECT object and executes it
+# server-side via EXECUTE DBT PROJECT. No external runner. See
+# docs/dbt_on_snowflake.md and snowflake/setup/013_create_dbt_on_snowflake.sql.
+SF_DBT_PROJECT ?= CLAIMS_DBT_PROJECT
+SF_DBT_EAI     ?= CLAIMS_DBT_EAI
+
+.PHONY: dbt-sf-deploy
+dbt-sf-deploy: ## Deploy local dbt project to Snowflake as a DBT PROJECT object
+	$(SNOW) dbt deploy $(SF_DBT_PROJECT) \
+		--source $(DBT_DIR) \
+		--profiles-dir $(DBT_DIR)/snowflake_profiles \
+		--default-target $(DBT_TARGET) \
+		--external-access-integration $(SF_DBT_EAI) \
+		--connection $(SF_CONN) --force
+
+.PHONY: dbt-sf-deps
+dbt-sf-deps: ## Run `dbt deps` inside Snowflake (needs EXTERNAL ACCESS INTEGRATION)
+	$(SNOW) sql --connection $(SF_CONN) \
+		-q "EXECUTE DBT PROJECT $(SF_DATABASE).DBT.$(SF_DBT_PROJECT) ARGS='deps';"
+
+.PHONY: dbt-sf-build
+dbt-sf-build: ## Run `dbt build` inside Snowflake (EXECUTE DBT PROJECT)
+	$(SNOW) sql --connection $(SF_CONN) \
+		-q "EXECUTE DBT PROJECT $(SF_DATABASE).DBT.$(SF_DBT_PROJECT) ARGS='build --target $(DBT_TARGET)';"
+
+.PHONY: dbt-sf-test
+dbt-sf-test: ## Run `dbt test` inside Snowflake (EXECUTE DBT PROJECT)
+	$(SNOW) sql --connection $(SF_CONN) \
+		-q "EXECUTE DBT PROJECT $(SF_DATABASE).DBT.$(SF_DBT_PROJECT) ARGS='test --target $(DBT_TARGET)';"
+
+.PHONY: dbt-sf-run-task
+dbt-sf-run-task: ## Trigger the scheduled native dbt build TASK once
+	$(SNOW) sql --connection $(SF_CONN) \
+		-q "EXECUTE TASK $(SF_DATABASE).DBT.CLAIMS_DBT_BUILD_DAILY;"
+
 # -----------------------------------------------------------------------------
 .PHONY: tf-init
 tf-init: ## terraform init (Snowflake provider only — no cloud backends)

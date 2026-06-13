@@ -1,0 +1,97 @@
+# =============================================================================
+# dbt Projects on Snowflake — native CD
+# -----------------------------------------------------------------------------
+# On merge to main, deploy the dbt project as a Snowflake DBT PROJECT object and
+# execute it SERVER-SIDE with EXECUTE DBT PROJECT. dbt runs INSIDE Snowflake —
+# GitHub Actions only orchestrates the deploy + trigger (no dbt Core runs here).
+#
+# This is the Snowflake-native counterpart to dbt_main_cd.yml (which runs dbt
+# Core on the runner). Use ONE of them as your prod path; this is the on-brand,
+# 100%-Snowflake choice.
+#
+# Auth: key-pair (SNOWFLAKE_JWT) — externalbrowser SSO cannot be used in CI.
+# Secrets required:
+#   SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PRIVATE_KEY (base64 .p8),
+#   SNOWFLAKE_ROLE (CLAIMS_TRANSFORMER), SNOWFLAKE_WAREHOUSE (WH_CLAIMS_TRANSFORM),
+#   SNOWFLAKE_DATABASE (CLAIMS_PROD for prod CD).
+# =============================================================================
+name: dbt-snowflake-native-cd
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'dbt/**'
+      - 'snowflake/setup/013_create_dbt_on_snowflake.sql'
+      - '.github/workflows/dbt_snowflake_native_cd.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: dbt-sf-native-cd
+  cancel-in-progress: false
+
+jobs:
+  deploy-and-execute:
+    runs-on: ubuntu-latest
+    env:
+      SF_DBT_PROJECT: CLAIMS_DBT_PROJECT
+      SF_DBT_EAI: CLAIMS_DBT_EAI
+      DBT_TARGET: prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      # Snowflake CLI provides `snow dbt deploy` + `snow sql`.
+      - name: Install Snowflake CLI
+        run: pip install "snowflake-cli==3.20.0"
+
+      # Materialize the key-pair private key from a base64 secret.
+      - name: Write private key
+        run: |
+          echo "${{ secrets.SNOWFLAKE_PRIVATE_KEY }}" | base64 -d > "$RUNNER_TEMP/sf_key.p8"
+          chmod 600 "$RUNNER_TEMP/sf_key.p8"
+
+      # Build a repo-local snow config that uses key-pair (JWT) auth.
+      - name: Configure snow connection
+        run: |
+          mkdir -p "$RUNNER_TEMP/snowflake"
+          cat > "$RUNNER_TEMP/snowflake/config.toml" <<EOF
+          default_connection_name = "ci"
+
+          [connections.ci]
+          account = "${{ secrets.SNOWFLAKE_ACCOUNT }}"
+          user = "${{ secrets.SNOWFLAKE_USER }}"
+          authenticator = "SNOWFLAKE_JWT"
+          private_key_file = "$RUNNER_TEMP/sf_key.p8"
+          role = "${{ secrets.SNOWFLAKE_ROLE }}"
+          warehouse = "${{ secrets.SNOWFLAKE_WAREHOUSE }}"
+          database = "${{ secrets.SNOWFLAKE_DATABASE }}"
+          schema = "CONTROL"
+          EOF
+          chmod 600 "$RUNNER_TEMP/snowflake/config.toml"
+          echo "SNOWFLAKE_HOME=$RUNNER_TEMP/snowflake" >> "$GITHUB_ENV"
+
+      # Deploy the dbt project as a native DBT PROJECT object (uploads files,
+      # versions the object). Uses the committed session-based profiles.yml.
+      - name: snow dbt deploy
+        run: |
+          snow dbt deploy "$SF_DBT_PROJECT" \
+            --source dbt \
+            --profiles-dir dbt/snowflake_profiles \
+            --default-target "$DBT_TARGET" \
+            --external-access-integration "$SF_DBT_EAI" \
+            --connection ci --force
+
+      # Resolve packages + build, all server-side inside Snowflake.
+      - name: EXECUTE DBT PROJECT (deps + build + test)
+        run: |
+          DB="${{ secrets.SNOWFLAKE_DATABASE }}"
+          snow sql --connection ci -q "EXECUTE DBT PROJECT ${DB}.DBT.${SF_DBT_PROJECT} ARGS='deps';"
+          snow sql --connection ci -q "EXECUTE DBT PROJECT ${DB}.DBT.${SF_DBT_PROJECT} ARGS='build --target ${DBT_TARGET}';"
+
+      - name: Cleanup key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/sf_key.p8"
