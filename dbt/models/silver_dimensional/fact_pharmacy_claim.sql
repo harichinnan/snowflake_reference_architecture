@@ -40,8 +40,13 @@ final as (
         {{ generate_surrogate_key(['member_id']) }}            as patient_sk,
         {{ generate_surrogate_key(['prescriber_npi']) }}       as provider_sk,
         {{ generate_surrogate_key(['pharmacy_npi']) }}         as pharmacy_provider_sk,
-        {{ generate_surrogate_key(['plan_id']) }}              as plan_sk,
-        {{ generate_surrogate_key(['payer_id']) }}             as payer_sk,
+        -- NOTE: silver_canonical.pharmacy_claim carries NO plan_id / payer_id
+        -- (pharmacy events are not linked to medical plan/payer in this model),
+        -- so the plan/payer dimension keys are NULL here rather than fabricated.
+        -- They could later be derived through the member's eligibility_span by
+        -- fill_date if pharmacy-to-plan attribution is required.
+        cast(null as string)                                   as plan_sk,
+        cast(null as string)                                   as payer_sk,
         cast(to_char(fill_date, 'YYYYMMDD') as integer)        as date_sk,
 
         -- ---- retained natural keys -----------------------------------------
@@ -49,9 +54,8 @@ final as (
         member_id,
         prescriber_npi,
         pharmacy_npi,
-        plan_id,
-        payer_id,
-        ndc_code,                                              -- drug identifier
+        -- plan_id / payer_id are not available on pharmacy_claim (see note above).
+        ndc,                                                   -- drug identifier (NDC)
 
         -- ---- attributes -----------------------------------------------------
         fill_date,

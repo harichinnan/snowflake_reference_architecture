@@ -40,14 +40,15 @@ final as (
         -- Conformed payer category (the governed "payer_type" slicer). Normalize
         -- whatever casing/synonyms the canonical layer carries into a small,
         -- stable accepted-value set.
+        -- Canonical payer exposes payer_category only (there is no payer_type col).
         case
-            when upper(coalesce(payer_category, payer_type)) like '%COMMERCIAL%' then 'Commercial'
-            when upper(coalesce(payer_category, payer_type)) like '%MEDICARE%'   then 'Medicare'
-            when upper(coalesce(payer_category, payer_type)) like '%MEDICAID%'   then 'Medicaid'
+            when upper(payer_category) like '%COMMERCIAL%' then 'Commercial'
+            when upper(payer_category) like '%MEDICARE%'   then 'Medicare'
+            when upper(payer_category) like '%MEDICAID%'   then 'Medicaid'
             else 'Other'
         end                                                   as payer_type,
 
-        coalesce(payer_category, payer_type)                  as payer_category_raw,
+        payer_category                                        as payer_category_raw,
 
         -- ---- audit ----------------------------------------------------------
         {{ audit_columns() }}

@@ -91,17 +91,18 @@ header_alloc_basis as (
 
 denial as (
 
-    -- Most recent denial event per claim/line (if any) -> denial flag/reason.
+    -- Most recent denial event per claim version (if any) -> denial flag/reason.
+    -- denial_event is at claim grain (no claim_line_id) and its timestamp column
+    -- is denial_ts.
     select
         claim_id,
         claim_version,
-        claim_line_id,
         denial_reason_code,
         true as is_denied
     from {{ ref('denial_event') }}
     qualify row_number() over (
-        partition by claim_id, claim_version, claim_line_id
-        order by event_ts desc
+        partition by claim_id, claim_version
+        order by denial_ts desc
     ) = 1
 
 ),
@@ -109,10 +110,13 @@ denial as (
 adjustment_chain as (
 
     -- Per claim, does an adjustment/reversal exist anywhere in its chain?
+    -- int_claim_adjustment_chain exposes claim_id, adjustment_type and is_reversal
+    -- (no root_claim_id / reversal_indicator columns).
     select
-        root_claim_id                                          as claim_id,
-        max(case when adjustment_type is not null then true else false end) as has_adjustment,
-        max(coalesce(reversal_indicator, false))              as has_reversal
+        claim_id,
+        max(case when adjustment_type is not null
+                  and adjustment_type <> 'ORIGINAL' then true else false end) as has_adjustment,
+        max(coalesce(is_reversal, false))                     as has_reversal
     from {{ ref('int_claim_adjustment_chain') }}
     group by 1
 
@@ -161,10 +165,11 @@ joined as (
     left join header_alloc_basis b
         on l.claim_id = b.claim_id
        and l.claim_version = b.claim_version
+    -- denial_event is claim-grain (not line-grain), so join on claim+version
+    -- only; the denial flag applies to every line of a denied claim version.
     left join denial d
         on l.claim_id = d.claim_id
        and l.claim_version = d.claim_version
-       and l.claim_line_id = d.claim_line_id
     left join adjustment_chain ac
         on l.claim_id = ac.claim_id
 

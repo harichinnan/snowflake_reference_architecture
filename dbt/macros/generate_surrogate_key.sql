@@ -15,8 +15,22 @@
    ============================================================================= #}
 
 {% macro claims_surrogate_key(field_list) %}
-    {#- Delegate to dbt_utils; it null-safes each field and hashes with MD5. -#}
-    {{ return(dbt_utils.generate_surrogate_key(field_list)) }}
+    {#- Local, package-free implementation (was dbt_utils.generate_surrogate_key).
+        Trial Snowflake account cannot run `dbt deps`, so we vendor the logic. -#}
+    {{ return(claims_surrogate_key_md5(field_list)) }}
+{% endmacro %}
+
+
+{# -----------------------------------------------------------------------------
+   generate_surrogate_key: package-free replacement for
+   dbt_utils.generate_surrogate_key. The 26 model call sites invoke this
+   UNQUALIFIED (e.g. {{ generate_surrogate_key(['claim_id','claim_version']) }}),
+   so defining it here in the project namespace resolves those calls without the
+   dbt_utils package. Delegates to claims_surrogate_key_md5 below, which returns
+   a deterministic, null-safe MD5 surrogate.
+   ----------------------------------------------------------------------------- #}
+{% macro generate_surrogate_key(field_list) %}
+    {{ return(claims_surrogate_key_md5(field_list)) }}
 {% endmacro %}
 
 

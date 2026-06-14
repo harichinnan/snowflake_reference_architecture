@@ -38,7 +38,9 @@ final as (
 
         -- ---- natural key + attributes --------------------------------------
         d.diagnosis_code,
-        d.description,
+        -- ref_diagnosis_code carries short_description (no plain description col);
+        -- expose it as `description` for downstream GOLD consumers.
+        d.short_description as description,
         d.code_system,                                          -- e.g. ICD-10-CM
 
         -- ---- clinical rollup -----------------------------------------------
@@ -53,8 +55,10 @@ final as (
         {{ audit_columns() }}
 
     from diagnosis d
+    -- ref_diagnosis_code.condition_group holds the condition-group CODE
+    -- (e.g. 'DIABETES'), which maps to ref_condition_group.condition_group_code.
     left join condition_group cg
-        on d.condition_group_code = cg.condition_group_code
+        on d.condition_group = cg.condition_group_code
 
 )
 

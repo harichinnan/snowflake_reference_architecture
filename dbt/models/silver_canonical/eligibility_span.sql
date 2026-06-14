@@ -154,7 +154,7 @@ collapsed as (
         max(plan_type)                                                 as plan_type,
         -- Status of the latest contributing event in the span.
         max_by(eligibility_status, business_event_ts)                  as eligibility_status,
-        bool_or(retro_active_indicator)                                as retro_active_indicator,
+        boolor_agg(retro_active_indicator)                             as retro_active_indicator,
         min(span_start)                                                as coverage_start_date,
         max(span_end)                                                  as span_end_internal,
         -- Translate the sentinel back to NULL = open-ended coverage.

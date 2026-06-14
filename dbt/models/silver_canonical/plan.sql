@@ -76,7 +76,9 @@ resolved as (
 ),
 
 plan_type_ref as (
-    select plan_type, plan_type_name
+    -- ref_plan_type join key is plan_type_code (the plan_type value carried on
+    -- the eligibility payload maps to plan_type_code).
+    select plan_type_code, plan_type_name
     from {{ ref('ref_plan_type') }}
 )
 
@@ -102,4 +104,4 @@ select
 
 from resolved r
 left join plan_type_ref ptr
-    on r.plan_type = ptr.plan_type
+    on r.plan_type = ptr.plan_type_code

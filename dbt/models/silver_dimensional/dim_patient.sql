@@ -46,7 +46,7 @@ current_patient as (
         partition by member_id
         order by
             coalesce(is_current, false) desc,
-            record_effective_from desc nulls last
+            effective_from desc nulls last   -- canonical patient uses effective_from
     ) = 1
 
 ),
@@ -62,32 +62,29 @@ final as (
 
         -- ---- demographic attributes ----------------------------------------
         gender,
-        birth_date,
+        -- Canonical patient is de-identified to birth_year (no full birth_date).
+        birth_year,
 
-        -- Age (in whole years) as of the current run date, then bucketed into
-        -- standard actuarial age bands used for PMPM / cohort segmentation.
-        datediff('year', birth_date, current_date())          as member_age,
-
-        case
-            when birth_date is null then 'Unknown'
-            when datediff('year', birth_date, current_date()) < 18  then '0-17'
-            when datediff('year', birth_date, current_date()) < 35  then '18-34'
-            when datediff('year', birth_date, current_date()) < 50  then '35-49'
-            when datediff('year', birth_date, current_date()) < 65  then '50-64'
-            else '65+'
-        end                                                   as age_band,
+        -- Age + age band are derived upstream in canonical.patient from
+        -- birth_year; carry them through (approx_age == whole-year age).
+        approx_age                                            as member_age,
+        age_band,
 
         -- ---- synthetic geography (no real addresses) -----------------------
         state,
-        -- 3-digit ZIP prefix only (de-identified geography unit).
-        left(coalesce(zip_code, ''), 3)                       as zip3,
+        -- zip3 (3-digit de-identified ZIP prefix) is already conformed upstream.
+        zip3,
 
         -- ---- SCD-light lineage / current flags -----------------------------
-        coalesce(is_current, true)                            as is_current,
-        record_effective_from,
-        record_effective_to,
+        -- NOTE: is_current is emitted by audit_columns() below; do not also
+        -- select it here or Snowflake errors with duplicate column 'IS_CURRENT'.
+        -- Canonical patient exposes effective_from / effective_to (not
+        -- record_effective_*); surface them under the dim's lineage names.
+        effective_from                                        as record_effective_from,
+        effective_to                                          as record_effective_to,
 
-        -- ---- audit ----------------------------------------------------------
+        -- ---- audit (provides is_current, effective_from/to, source_system,
+        --      batch_id, load_id, pipeline_run_id, payload_hash, timestamps) ---
         {{ audit_columns() }}
 
     from current_patient

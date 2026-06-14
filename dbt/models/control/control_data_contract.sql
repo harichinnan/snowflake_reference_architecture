@@ -29,7 +29,9 @@ ranked as (
         row_number() over (
             partition by source_system, object_name
             order by
-                coalesce(schema_version, 0) desc,
+                -- schema_version is a string label (e.g. 'v1'); order as text,
+                -- never coalesce to a number (that forces a failing numeric cast).
+                coalesce(schema_version, '') desc,
                 coalesce(effective_from, to_timestamp_ntz('1900-01-01')) desc
         ) as version_rank
     from contract

@@ -30,9 +30,11 @@ final as (
 
         -- ---- natural key + attributes --------------------------------------
         procedure_code,
-        description,
+        -- ref_procedure_code carries short_description + category (not
+        -- description / procedure_category); expose them under the downstream names.
+        short_description as description,
         code_system,                                           -- e.g. CPT / HCPCS
-        coalesce(procedure_category, 'Unknown')                as category,
+        coalesce(category, 'Unknown')                          as category,
 
         -- ---- audit ----------------------------------------------------------
         {{ audit_columns() }}

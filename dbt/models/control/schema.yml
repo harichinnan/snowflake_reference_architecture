@@ -38,7 +38,7 @@ models:
         data_tests:
           - not_null
     data_tests:
-      - dbt_utils.unique_combination_of_columns:
+      - unique_combination_of_columns:
           combination_of_columns:
             - source_system
             - object_name
@@ -138,8 +138,7 @@ models:
         description: "Lifecycle status of the reprocess."
         data_tests:
           - accepted_values:
-              arguments:
-                values: ['REQUESTED', 'APPROVED', 'RUNNING', 'COMPLETED', 'FAILED', 'REJECTED']
+              values: ['REQUESTED', 'APPROVED', 'RUNNING', 'COMPLETED', 'FAILED', 'REJECTED']
       - name: rows_before
         description: "Row count prior to reprocess."
       - name: rows_after
@@ -150,8 +149,7 @@ models:
         description: "Post-run DQ gate result. DCM E/G."
         data_tests:
           - accepted_values:
-              arguments:
-                values: ['PASS', 'FAIL', 'PENDING']
+              values: ['PASS', 'FAIL', 'PENDING']
 
   # ---------------------------------------------------------------------------
   - name: control_data_quality_scorecard
@@ -174,8 +172,7 @@ models:
         description: "Status of the most recent run of this test."
         data_tests:
           - accepted_values:
-              arguments:
-                values: ['PASS', 'FAIL']
+              values: ['PASS', 'FAIL']
       - name: latest_failed_row_count
         description: "Failed rows in the latest run. DCM E."
       - name: pass_count
@@ -188,10 +185,9 @@ models:
         description: "NEW / IMPROVING / REGRESSING / STABLE vs. prior run."
         data_tests:
           - accepted_values:
-              arguments:
-                values: ['NEW', 'IMPROVING', 'REGRESSING', 'STABLE']
+              values: ['NEW', 'IMPROVING', 'REGRESSING', 'STABLE']
     data_tests:
-      - dbt_utils.unique_combination_of_columns:
+      - unique_combination_of_columns:
           combination_of_columns:
             - model_name
             - test_name
@@ -224,14 +220,12 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              arguments:
-                values: ['FRESH', 'STALE', 'BREACH']
+              values: ['FRESH', 'STALE', 'BREACH']
       - name: alert_severity
         description: "NONE / WARN / CRITICAL alert level. DCM I."
         data_tests:
           - accepted_values:
-              arguments:
-                values: ['NONE', 'WARN', 'CRITICAL']
+              values: ['NONE', 'WARN', 'CRITICAL']
 
   # ---------------------------------------------------------------------------
   - name: control_semantic_metric_registry
@@ -258,8 +252,7 @@ models:
         description: "Certification state of the metric."
         data_tests:
           - accepted_values:
-              arguments:
-                values: ['CERTIFIED', 'DRAFT', 'DEPRECATED']
+              values: ['CERTIFIED', 'DRAFT', 'DEPRECATED']
       - name: source_model
         description: "Backing GOLD/SEMANTIC model."
       - name: allowed_dimensions

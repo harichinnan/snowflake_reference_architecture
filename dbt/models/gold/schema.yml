@@ -73,7 +73,7 @@ models:
         description: Certified member-month count (PMPM denominator).
         tests:
           - not_null
-          - dbt_utils.accepted_range:
+          - accepted_range:
               min_value: 0
               inclusive: true
       - name: distinct_members
@@ -91,7 +91,7 @@ models:
         tests: [not_null]
       - name: total_paid
         tests:
-          - dbt_utils.accepted_range:
+          - accepted_range:
               min_value: 0
               inclusive: true
       - name: paid_per_member
@@ -112,7 +112,7 @@ models:
         tests: [not_null]
       - name: total_paid
         tests:
-          - dbt_utils.accepted_range:
+          - accepted_range:
               min_value: 0
               inclusive: true
       - name: paid_per_member
@@ -136,7 +136,7 @@ models:
         description: Certified paid (additive).
         tests:
           - not_null
-          - dbt_utils.accepted_range:
+          - accepted_range:
               min_value: 0
               inclusive: true
       - name: member_months
@@ -146,14 +146,14 @@ models:
           CERTIFIED PMPM = total_paid / member_months. NULL only where member
           months = 0. Sanity test: when member_months > 0, pmpm must be populated.
         tests:
-          - dbt_utils.expression_is_true:
+          - expression_is_true:
               expression: ">= 0"
               config:
                 where: "member_months > 0"
       - name: denial_rate
         description: denied_claims / claim_count.
         tests:
-          - dbt_utils.accepted_range:
+          - accepted_range:
               min_value: 0
               max_value: 1
               inclusive: true
@@ -178,7 +178,7 @@ models:
               values: ['Commercial', 'Medicare', 'Medicaid', 'Other']
       - name: total_paid
         tests:
-          - dbt_utils.accepted_range:
+          - accepted_range:
               min_value: 0
               inclusive: true
 
@@ -197,7 +197,7 @@ models:
       - name: restated_paid
         description: Current certified total (= original_paid + late_paid).
         tests:
-          - dbt_utils.accepted_range:
+          - accepted_range:
               min_value: 0
               inclusive: true
 
@@ -216,7 +216,7 @@ models:
       - name: denial_rate
         description: Certified denial rate = denied_claims / total_claims.
         tests:
-          - dbt_utils.accepted_range:
+          - accepted_range:
               min_value: 0
               max_value: 1
               inclusive: true

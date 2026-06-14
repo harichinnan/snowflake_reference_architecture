@@ -134,7 +134,7 @@ models:
 
   - name: dim_date
     description: >
-      Conformed date dimension -- generated date spine (dbt_utils.date_spine)
+      Conformed date dimension -- generated date spine (local date_spine macro)
       covering 2018-2027. Grain: one row per calendar day. date_sk is yyyymmdd.
     columns:
       - name: date_sk
@@ -178,14 +178,13 @@ models:
       patient_responsibility (line-allocated), units.
     tests:
       # Recency: synthetic loads should produce reasonably fresh service dates.
-      - dbt_utils.recency:
+      - recency:
           datepart: day
           field: service_from_date
           interval: 400
-      # Reconciliation reference: header<->line totals must tie out.
-      - assert_claim_header_line_totals_reconcile
-      # No duplicate active claim reference: each current claim line appears once.
-      - no_duplicate_active_claim
+      # NOTE: header<->line reconciliation and no-duplicate-active-claim are
+      # enforced by the singular tests tests/assert_claim_header_line_totals_reconcile.sql
+      # and tests/assert_no_duplicate_current_claims.sql (run automatically).
     columns:
       - name: fact_claim_line_sk
         description: Surrogate key = hash(claim_id, claim_line_id, claim_version).
@@ -308,9 +307,8 @@ models:
       Coverage fact. GRAIN: one row per (member, payer, plan, coverage month) --
       eligibility spans exploded to months via dim_date. member_month_flag = 1.
       This is the member-months / PMPM denominator.
-    tests:
-      # Reference to the upstream non-overlapping eligibility guarantee.
-      - non_overlapping_eligibility
+      # NOTE: non-overlapping eligibility is enforced by the singular test
+      # tests/assert_eligibility_spans_do_not_overlap.sql (runs automatically).
     columns:
       - name: fact_eligibility_month_sk
         description: Surrogate key = hash(member_id, payer_id, plan_id, month_start).

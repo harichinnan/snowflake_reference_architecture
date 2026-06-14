@@ -47,22 +47,28 @@ joined as (
 
     select
         e.claim_id,
-        e.claim_version,
-        e.event_seq,
+        -- adjudication_event has no plain claim_version; new_claim_version is the
+        -- version this event produced. (prior_claim_version is the predecessor.)
+        e.new_claim_version                   as claim_version,
+        -- No event_seq on adjudication_event; the event's own id is its sequence
+        -- identity and is used to make the fact's surrogate key unique.
+        e.adjudication_event_id               as event_seq,
         e.event_ts,
         e.event_type,                       -- ADJUSTMENT | VOID | REVERSAL | PAY
-        e.payer_id,
-        e.paid_amount,
-        coalesce(e.reversal_indicator, false) as reversal_flag,
-        coalesce(e.void_indicator, false)     as void_flag,
+        -- adjudication_event already carries the signed paid_amount delta for the
+        -- version transition; no prior/new paid columns to difference.
+        coalesce(e.paid_amount_delta, 0)      as paid_amount_delta,
+        -- Lifecycle flags come from the reconstructed chain (is_reversal/is_void);
+        -- adjudication_event has no reversal/void indicator columns.
+        coalesce(c.is_reversal, false)        as reversal_flag,
+        coalesce(c.is_void, false)            as void_flag,
 
-        c.original_claim_id,
-        c.prior_paid_amount
+        c.original_claim_id
 
     from events e
     left join chain c
         on e.claim_id = c.claim_id
-       and e.claim_version = c.claim_version
+       and e.new_claim_version = c.claim_version
 
 ),
 
@@ -75,14 +81,15 @@ final as (
 
         -- ---- dimension FKs --------------------------------------------------
         cast(to_char(event_ts, 'YYYYMMDD') as integer)         as date_sk,
-        {{ generate_surrogate_key(['payer_id']) }}             as payer_sk,
+        -- adjudication_event carries no payer_id (and the adjustment chain has no
+        -- payer either), so the payer FK is NULL on this event fact.
+        cast(null as string)                                   as payer_sk,
 
         -- ---- retained natural keys -----------------------------------------
         claim_id,
         claim_version,
         original_claim_id,
         event_seq,
-        payer_id,
 
         -- ---- attributes -----------------------------------------------------
         event_ts,
@@ -101,10 +108,10 @@ final as (
 
         -- ---- measures -------------------------------------------------------
         -- Signed change in paid amount this event contributed vs the prior
-        -- version. Summing paid_amount_delta over a claim's chain ties back to
-        -- the claim's current paid total.
-        coalesce(paid_amount, 0) - coalesce(prior_paid_amount, 0)
-                                                               as paid_amount_delta,
+        -- version, taken directly from adjudication_event.paid_amount_delta.
+        -- Summing paid_amount_delta over a claim's chain ties back to the
+        -- claim's current paid total.
+        paid_amount_delta,
         1                                                      as event_count,
         case when reversal_flag then 1 else 0 end              as reversal_count,
         case when void_flag     then 1 else 0 end              as void_count,

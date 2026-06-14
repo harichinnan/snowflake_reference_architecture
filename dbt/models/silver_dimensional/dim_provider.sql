@@ -38,11 +38,14 @@ joined as (
 
     select
         p.*,
-        s.specialty_name,
-        s.provider_type as ref_provider_type
+        -- ref_provider_specialty is keyed by taxonomy_code (canonical provider has
+        -- no specialty_code) and exposes specialty_code + specialty_name. It has
+        -- NO provider_type column.
+        s.specialty_code as ref_specialty_code,
+        s.specialty_name
     from provider p
     left join specialty_ref s
-        on p.specialty_code = s.specialty_code
+        on p.taxonomy_code = s.taxonomy_code
 
 ),
 
@@ -57,16 +60,21 @@ final as (
 
         -- ---- descriptive attributes ----------------------------------------
         provider_name,
-        specialty_code,
-        coalesce(specialty_name, 'Unknown')                   as specialty,
+        ref_specialty_code                                    as specialty_code,
+        -- Prefer the reference specialty name; fall back to the canonical
+        -- free-text specialty carried on the provider master.
+        coalesce(specialty_name, specialty, 'Unknown')        as specialty,
         taxonomy_code                                         as taxonomy,
 
-        -- Provider type: prefer the reference rollup, fall back to canonical.
-        coalesce(ref_provider_type, provider_type, 'Unknown') as provider_type,
+        -- Provider type comes only from the canonical provider master
+        -- (ref_provider_specialty has no provider_type).
+        coalesce(provider_type, 'Unknown')                    as provider_type,
 
-        -- ---- synthetic geography -------------------------------------------
-        state,
-        left(coalesce(zip_code, ''), 3)                       as zip3,
+        -- ---- geography ------------------------------------------------------
+        -- The canonical provider master carries no parsed state/zip (addresses
+        -- live unparsed in addresses_raw), so geography is NULL here.
+        cast(null as string)                                  as state,
+        cast(null as string)                                  as zip3,
 
         -- ---- audit ----------------------------------------------------------
         {{ audit_columns() }}

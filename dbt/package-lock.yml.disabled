@@ -1,3 +1,6 @@
+# Disabled: trial Snowflake account cannot run dbt deps server-side; macros are vendored locally.
+# (Kept for reference only. Renamed from package-lock.yml.)
+
 packages:
   - name: dbt_utils
     package: dbt-labs/dbt_utils

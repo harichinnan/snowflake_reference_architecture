@@ -29,12 +29,14 @@ with base as (
 ),
 
 denial_reason_ref as (
-    select denial_reason_code, denial_reason_description
+    -- ref_denial_reason carries denial_reason_name (not _description).
+    select denial_reason_code, denial_reason_name as denial_reason_description
     from {{ ref('ref_denial_reason') }}
 ),
 
 status_ref as (
-    select claim_status_code, claim_status_description
+    -- ref_claim_status keys on status_code / status_name.
+    select status_code as claim_status_code, status_name as claim_status_description
     from {{ ref('ref_claim_status') }}
 ),
 

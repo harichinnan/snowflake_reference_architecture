@@ -47,8 +47,7 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              arguments:
-                values: ['VALID', 'QUARANTINE']
+              values: ['VALID', 'QUARANTINE']
       - name: business_event_ts
         description: "When the claim event happened; incremental watermark column. DCM C."
       - name: source_extract_ts
@@ -74,7 +73,7 @@ models:
       - name: is_reprocessed
         description: "DCM G flag: row produced by a reprocessing run."
     data_tests:
-      - dbt_utils.unique_combination_of_columns:
+      - unique_combination_of_columns:
           combination_of_columns:
             - natural_key
             - payload_hash
@@ -104,8 +103,7 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              arguments:
-                values: ['VALID', 'QUARANTINE']
+              values: ['VALID', 'QUARANTINE']
       - name: member_id
         description: "Member identifier (required key)."
       - name: plan_id
@@ -127,7 +125,7 @@ models:
       - name: is_reprocessed
         description: "DCM G flag: row produced by a reprocessing run."
     data_tests:
-      - dbt_utils.unique_combination_of_columns:
+      - unique_combination_of_columns:
           combination_of_columns:
             - natural_key
             - payload_hash
@@ -155,8 +153,7 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              arguments:
-                values: ['VALID', 'QUARANTINE']
+              values: ['VALID', 'QUARANTINE']
       - name: npi
         description: "Provider NPI (required key, validated as 10-digit numeric)."
       - name: provider_name
@@ -176,7 +173,7 @@ models:
       - name: is_reprocessed
         description: "DCM G flag: row produced by a reprocessing run."
     data_tests:
-      - dbt_utils.unique_combination_of_columns:
+      - unique_combination_of_columns:
           combination_of_columns:
             - natural_key
             - payload_hash
@@ -205,8 +202,7 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              arguments:
-                values: ['VALID', 'QUARANTINE']
+              values: ['VALID', 'QUARANTINE']
       - name: pharmacy_claim_id
         description: "Pharmacy claim identifier (required key)."
       - name: member_id
@@ -230,7 +226,7 @@ models:
       - name: is_reprocessed
         description: "DCM G flag: row produced by a reprocessing run."
     data_tests:
-      - dbt_utils.unique_combination_of_columns:
+      - unique_combination_of_columns:
           combination_of_columns:
             - natural_key
             - payload_hash
@@ -259,8 +255,7 @@ models:
         data_tests:
           - not_null
           - accepted_values:
-              arguments:
-                values: ['VALID', 'QUARANTINE']
+              values: ['VALID', 'QUARANTINE']
       - name: claim_id
         description: "Business claim identifier (required key)."
       - name: adjudication_event_id
@@ -284,7 +279,7 @@ models:
       - name: is_reprocessed
         description: "DCM G flag: row produced by a reprocessing run."
     data_tests:
-      - dbt_utils.unique_combination_of_columns:
+      - unique_combination_of_columns:
           combination_of_columns:
             - natural_key
             - payload_hash

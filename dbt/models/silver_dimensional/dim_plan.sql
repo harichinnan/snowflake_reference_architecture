@@ -48,8 +48,11 @@ final as (
 
         -- ---- descriptive attributes ----------------------------------------
         plan_src.plan_type,
-        coalesce(t.plan_type_name, plan_src.plan_type, 'Unknown') as plan_type_name,
-        plan_src.plan_name,
+        -- Prefer the canonical plan_type_name (already resolved from ref_plan_type
+        -- in the plan model); fall back to the seed label, then the raw code.
+        -- The canonical plan has no plan_name column, so it is not carried here.
+        coalesce(plan_src.plan_type_name, t.plan_type_name, plan_src.plan_type, 'Unknown')
+                                                                  as plan_type_name,
 
         -- ---- audit ----------------------------------------------------------
         {{ audit_columns() }}

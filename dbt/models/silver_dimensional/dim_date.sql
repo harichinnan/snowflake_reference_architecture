@@ -3,7 +3,7 @@
 -- Layer: SILVER_DIMENSIONAL (conformed date dimension)
 -- Grain: one row per calendar day.
 --
--- A generated date spine (dbt_utils.date_spine) covering 2018-01-01 through
+-- A generated date spine (local date_spine macro) covering 2018-01-01 through
 -- 2027-12-31 -- wide enough to span synthetic service dates, fill dates, event
 -- timestamps, and the eligibility month explosion (fact_eligibility_month)
 -- with headroom on both ends.
@@ -24,7 +24,7 @@ with spine as (
 
     -- 10 full calendar years of days. date_spine is end-exclusive, so the upper
     -- bound is 2028-01-01 to include all of 2027.
-    {{ dbt_utils.date_spine(
+    {{ date_spine(
         datepart = "day",
         start_date = "to_date('2018-01-01')",
         end_date   = "to_date('2028-01-01')"
@@ -35,29 +35,30 @@ with spine as (
 final as (
 
     select
-        -- date_d is the column dbt_utils.date_spine emits.
-        cast(date_d as date)                                   as date_day,
+        -- date_day is the column emitted by the local date_spine macro
+        -- (column name is date_<datepart>, datepart='day' -> date_day).
+        cast(date_day as date)                                 as date_day,
 
         -- ---- integer surrogate key (yyyymmdd) ------------------------------
-        cast(to_char(date_d, 'YYYYMMDD') as integer)           as date_sk,
+        cast(to_char(date_day, 'YYYYMMDD') as integer)         as date_sk,
 
         -- ---- calendar parts -------------------------------------------------
-        year(date_d)                                           as year,
-        quarter(date_d)                                        as quarter,
-        month(date_d)                                          as month,
-        monthname(date_d)                                      as month_name,
-        day(date_d)                                            as day,
+        year(date_day)                                         as year,
+        quarter(date_day)                                      as quarter,
+        month(date_day)                                        as month,
+        monthname(date_day)                                    as month_name,
+        day(date_day)                                          as day,
 
         -- Snowflake DAYOFWEEK: 0=Sunday .. 6=Saturday (WEEK_START dependent;
         -- we use the ISO-style dayofweekiso 1=Mon..7=Sun for stability).
-        dayofweekiso(date_d)                                   as day_of_week,
-        case when dayofweekiso(date_d) in (6, 7) then true else false end
+        dayofweekiso(date_day)                                 as day_of_week,
+        case when dayofweekiso(date_day) in (6, 7) then true else false end
                                                                as is_weekend,
 
         -- ---- period anchors -------------------------------------------------
-        date_trunc('month', date_d)::date                      as month_start,
-        date_trunc('year',  date_d)::date                      as year_start,
-        to_char(date_d, 'YYYY-MM')                             as year_month
+        date_trunc('month', date_day)::date                    as month_start,
+        date_trunc('year',  date_day)::date                    as year_start,
+        to_char(date_day, 'YYYY-MM')                            as year_month
 
     from spine
 

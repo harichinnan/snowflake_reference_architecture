@@ -46,7 +46,7 @@ models:
         description: DCM content hash of the source payload.
     tests:
       # Composite natural key is unique post-dedupe.
-      - dbt_utils.unique_combination_of_columns:
+      - unique_combination_of_columns:
           combination_of_columns: [claim_id, claim_version]
 
   - name: int_late_arriving_claims
@@ -98,7 +98,7 @@ models:
       - name: is_adjustment
         tests: [not_null]
     tests:
-      - dbt_utils.unique_combination_of_columns:
+      - unique_combination_of_columns:
           combination_of_columns: [claim_id, claim_version]
 
   - name: int_current_valid_claims
@@ -118,7 +118,7 @@ models:
           - not_null
           - accepted_values: { values: [true, false] }
     tests:
-      - dbt_utils.unique_combination_of_columns:
+      - unique_combination_of_columns:
           combination_of_columns: [claim_id, claim_version]
 
   # ===========================================================================
@@ -171,7 +171,7 @@ models:
       - name: is_current
         tests: [not_null]
     tests:
-      - dbt_utils.unique_combination_of_columns:
+      - unique_combination_of_columns:
           combination_of_columns: [member_id, plan_id, coverage_start_date]
 
   - name: provider
@@ -309,7 +309,7 @@ models:
       - name: paid_amount
         description: Line paid amount; sums to header paid_amount per version.
     tests:
-      - dbt_utils.unique_combination_of_columns:
+      - unique_combination_of_columns:
           combination_of_columns: [claim_id, claim_version, line_number]
 
   - name: claim_diagnosis

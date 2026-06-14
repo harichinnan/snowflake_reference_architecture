@@ -19,8 +19,8 @@ with dq as (
         severity,           -- e.g. WARN / ERROR
         status,             -- e.g. PASS / FAIL
         failed_row_count,
-        run_id,
-        run_completed_at
+        pipeline_run_id,                -- DATA_QUALITY_RESULT key (not run_id)
+        created_at as run_completed_at   -- DATA_QUALITY_RESULT timestamp is created_at
     from {{ source('audit', 'data_quality_result') }}
 
 ),
@@ -40,7 +40,7 @@ ordered as (
 
 latest as (
     select model_name, test_name, severity, status as latest_status,
-           failed_row_count as latest_failed_row_count, run_id as latest_run_id,
+           failed_row_count as latest_failed_row_count, pipeline_run_id as latest_run_id,
            run_completed_at as latest_run_at
     from ordered
     where run_rank = 1

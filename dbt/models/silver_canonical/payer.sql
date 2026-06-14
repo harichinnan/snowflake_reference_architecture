@@ -62,11 +62,12 @@ payer_plan_type as (
     group by payer_id
 ),
 
--- Map plan_type -> category via the reference seed. The seed is expected to
--- carry plan_type + payer_category columns.
+-- Map plan_type -> category via the reference seed. ref_plan_type carries
+-- plan_type_code (the join key) + plan_type_name + payer_category. The
+-- eligibility payload's plan_type value is the plan_type_code.
 plan_type_ref as (
     select
-        plan_type,
+        plan_type_code,
         payer_category
     from {{ ref('ref_plan_type') }}
 )
@@ -99,4 +100,4 @@ from payers p
 left join payer_plan_type ppt
     on p.payer_id = ppt.payer_id
 left join plan_type_ref ptr
-    on ppt.plan_type = ptr.plan_type
+    on ppt.plan_type = ptr.plan_type_code
