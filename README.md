@@ -287,15 +287,24 @@ which renders every dbt resource (seed → model → test) as its own Airflow ta
 with the dependencies that match the dbt DAG — giving you scheduling, retries,
 and per-model observability.
 
+Run it locally with Docker Compose, or on a local Kubernetes cluster via the
+official Airflow **Helm chart** (KubernetesExecutor — each dbt task is a pod):
+
 ```bash
-cd airflow
-cp .env.example .env        # set AIRFLOW_CONN_SNOWFLAKE_CLAIMS (account/user/password/role)
-docker compose up --build   # http://localhost:8080 (admin/admin) -> trigger `claims_dbt_cosmos`
+# Docker Compose (quick local)
+cd airflow && cp .env.example .env   # set AIRFLOW_CONN_SNOWFLAKE_CLAIMS
+docker compose up --build            # localhost:8080 (admin/admin)
+
+# Local Kubernetes (Helm) — Docker Desktop / kind / minikube
+cp k8s/snowflake-connection.secret.example.yaml k8s/snowflake-connection.secret.yaml  # fill creds
+make k8s-deploy                      # build image + load + helm install
+make k8s-forward                     # http://localhost:8080 -> trigger `claims_dbt_cosmos`
 ```
 
-So the one dbt project can be orchestrated three ways — **Airflow + Cosmos**
-(above), **dbt Projects on Snowflake** (server-side `EXECUTE DBT PROJECT`), or
-**GitHub Actions** — pick what fits. Details: [`airflow/README.md`](airflow/README.md).
+So the one dbt project can be orchestrated several ways — **Airflow + Cosmos**
+(Docker Compose *or* Kubernetes/Helm), **dbt Projects on Snowflake** (server-side
+`EXECUTE DBT PROJECT`), or **GitHub Actions** — pick what fits. Details:
+[`airflow/README.md`](airflow/README.md) and [`k8s/README.md`](k8s/README.md).
 
 ---
 
@@ -394,7 +403,8 @@ Configure MCP-compatible hosts (Claude Desktop, Cursor, VS Code) to connect to t
 - [`docs/ci_cd.md`](docs/ci_cd.md)
 - [`dcm/README.md`](dcm/README.md) — infrastructure as a Snowflake DCM (Declarative Change Management) project
 - [`docs/dbt_on_snowflake.md`](docs/dbt_on_snowflake.md) — run dbt natively inside Snowflake
-- [`airflow/README.md`](airflow/README.md) — orchestrate dbt with Airflow + Cosmos (Docker)
+- [`airflow/README.md`](airflow/README.md) — orchestrate dbt with Airflow + Cosmos (Docker Compose)
+- [`k8s/README.md`](k8s/README.md) — deploy Airflow + Cosmos on local Kubernetes (Helm)
 - [`docs/cortex_mcp_setup.md`](docs/cortex_mcp_setup.md)
 - [`docs/workbooks.md`](docs/workbooks.md)
 - [`docs/runbook.md`](docs/runbook.md)

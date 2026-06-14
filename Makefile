@@ -188,6 +188,36 @@ dcm-plan: ## Preview the infra change set (dry run -> out/plan_result.json)
 dcm-deploy: ## Apply the DCM infra change set (CREATE/ALTER/DROP to match definitions)
 	$(SNOW) dcm deploy $(DCM_PROJECT_OBJ) --from dcm --target $(DCM_TARGET) --connection $(SF_CONN) --save-output
 
+# ===== Airflow + Cosmos orchestration ========================================
+# Local quick start uses Docker Compose; k8s uses the Apache Airflow Helm chart.
+K8S_NS    ?= airflow
+K8S_IMAGE ?= claims-airflow:local
+
+.PHONY: airflow-up
+airflow-up: ## Run Airflow + Cosmos locally via Docker Compose (see airflow/)
+	cd airflow && docker compose up --build
+
+.PHONY: airflow-down
+airflow-down: ## Stop the local Docker Compose Airflow stack
+	cd airflow && docker compose down
+
+.PHONY: k8s-build
+k8s-build: ## Build the Airflow image with DAGs + dbt baked in (context = repo root)
+	docker build -f k8s/Dockerfile -t $(K8S_IMAGE) .
+
+.PHONY: k8s-deploy
+k8s-deploy: ## Build + load + helm install Airflow on local k8s (needs the conn secret)
+	./k8s/deploy.sh
+
+.PHONY: k8s-forward
+k8s-forward: ## Port-forward the Airflow UI to http://localhost:8080
+	kubectl port-forward -n $(K8S_NS) svc/airflow-webserver 8080:8080
+
+.PHONY: k8s-down
+k8s-down: ## Uninstall the Airflow release + namespace
+	helm uninstall airflow -n $(K8S_NS) || true
+	kubectl delete namespace $(K8S_NS) || true
+
 # -----------------------------------------------------------------------------
 .PHONY: tf-init
 tf-init: ## terraform init (Snowflake provider)

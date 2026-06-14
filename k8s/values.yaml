@@ -1,0 +1,70 @@
+# =============================================================================
+# Helm values for the official Apache Airflow chart (apache-airflow/airflow),
+# tuned for a LOCAL Kubernetes cluster (Docker Desktop / kind / minikube).
+# Runs the claims dbt pipeline via Cosmos with the KubernetesExecutor.
+#
+#   helm repo add apache-airflow https://airflow.apache.org
+#   helm upgrade --install airflow apache-airflow/airflow -n airflow -f k8s/values.yaml
+#
+# Data is SYNTHETIC -- not real CMS/Medicare/Medicaid/PHI.
+# =============================================================================
+
+# Each Airflow task runs in its own pod (k8s-native; no Celery/Redis).
+executor: KubernetesExecutor
+
+# Our custom image (built from k8s/Dockerfile) with Cosmos + dbt + DAGs + project
+# baked in. Loaded into the local cluster (kind load / minikube image load /
+# Docker Desktop shared daemon), so pull from the local daemon only.
+images:
+  airflow:
+    repository: claims-airflow
+    tag: local
+    pullPolicy: IfNotPresent
+
+# DAGs are baked into the image -- no git-sync, no DAG PVC.
+dags:
+  persistence:
+    enabled: false
+  gitSync:
+    enabled: false
+
+# Inject the Snowflake Airflow connection (conn_id: snowflake_claims) into every
+# component from a Secret you create from k8s/snowflake-connection.secret.example.yaml.
+extraEnvFrom: |
+  - secretRef:
+      name: claims-snowflake-conn
+
+# Cosmos renders dbt at parse time (LoadMode.DBT_LS) -- point the dbt project +
+# venv envs at the baked-in locations (also the DAG defaults).
+extraEnv: |
+  - name: DBT_PROJECT_DIR
+    value: /opt/airflow/dbt_project
+  - name: DBT_VENV_DIR
+    value: /home/airflow/dbt_venv
+
+# Single-replica components for a local cluster.
+scheduler:
+  replicas: 1
+webserver:
+  replicas: 1
+  service:
+    type: ClusterIP          # access via `kubectl port-forward` (see README)
+
+# Bundled Postgres for the Airflow metadata DB (demo only; use an external,
+# managed Postgres in production).
+postgresql:
+  enabled: true
+
+# Trigger pods aren't needed for this demo.
+triggerer:
+  enabled: false
+
+# Let the chart generate fernetKey / webserverSecretKey on install.
+# For a stable key across upgrades, set them explicitly or use a pre-made secret.
+
+# Create the admin user (admin/admin) on install.
+webserverSecretKeySecretName: ~
+createUserJob:
+  useHelmHooks: false
+migrateDatabaseJob:
+  useHelmHooks: false

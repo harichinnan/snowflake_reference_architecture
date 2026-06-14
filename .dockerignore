@@ -1,0 +1,21 @@
+# Build-context excludes (keeps the Airflow image small + free of secrets).
+.git
+.venv
+.snowflake
+**/__pycache__
+**/*.pyc
+# dbt build artifacts / local-only files
+dbt/target
+dbt/logs
+dbt/dbt_packages
+dbt/profiles.yml
+# generated synthetic data (the DAG loads via dbt seed / ingestion, not baked)
+data_generator/output/*.ndjson
+data_generator/output/*.json
+data_generator/output/*.gz
+# local env / airflow runtime
+.env
+**/.env
+airflow/logs
+airflow/plugins
+terraform/.terraform

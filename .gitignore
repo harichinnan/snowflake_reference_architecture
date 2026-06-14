@@ -64,6 +64,9 @@ data_generator/output/*.csv
 airflow/logs/
 airflow/plugins/
 
+# --- k8s real secret (keep the .example) -------------------------------------
+k8s/snowflake-connection.secret.yaml
+
 # --- OS / IDE ----------------------------------------------------------------
 .DS_Store
 Thumbs.db
