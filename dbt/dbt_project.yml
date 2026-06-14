@@ -2,7 +2,7 @@
 # dbt_project.yml
 # snowflake-claims-platform :: dbt Core (dbt-snowflake)
 #
-# 100% Snowflake-only, synthetic claims reference architecture.
+# Snowflake-centric, synthetic claims reference architecture.
 #
 # Database/schema strategy:
 #   - Target databases: CLAIMS_DEV (dev/ci), CLAIMS_PROD (prod) -- set per

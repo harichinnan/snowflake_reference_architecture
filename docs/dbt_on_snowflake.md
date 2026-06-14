@@ -5,7 +5,7 @@
 This platform supports three ways to run dbt. This document covers the most
 Snowflake-native one: **dbt Projects on Snowflake**, where the dbt project is a
 schema-level `DBT PROJECT` object and dbt executes **server-side** with
-`EXECUTE DBT PROJECT`. No external runner, no cloud — 100% Snowflake.
+`EXECUTE DBT PROJECT`, running server-side inside Snowflake.
 
 | Path | Where dbt runs | When to use |
 |---|---|---|

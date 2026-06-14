@@ -1,8 +1,8 @@
 # =============================================================================
 # snowflake-claims-platform — Makefile
 # -----------------------------------------------------------------------------
-# 100% Snowflake-only synthetic healthcare claims platform.
-# Ingestion is internal-stage + PUT + COPY INTO ONLY. No S3/GCS/Blob/Airflow/etc.
+# Snowflake-centric synthetic healthcare claims platform.
+# Ingestion uses internal-stage + PUT + COPY INTO.
 # Data is SYNTHETIC. Never treat it as real CMS/Medicare/Medicaid/PHI.
 #
 # All tooling runs from a local virtualenv at ./.venv (Python 3.13 — dbt does
@@ -38,7 +38,7 @@ DATA_OUT    ?= data_generator/output
 export SNOWFLAKE_HOME := $(CURDIR)/.snowflake
 export DBT_PROFILES_DIR := $(CURDIR)/$(DBT_DIR)
 
-# Map ENV -> Snowflake database name (single-vendor, no external services).
+# Map ENV -> Snowflake database name.
 ifeq ($(ENV),prod)
 SF_DATABASE ?= CLAIMS_PROD
 else
@@ -98,7 +98,7 @@ sf-setup: ## Run Snowflake setup scripts 001-012 (idempotent) via snow CLI
 
 # -----------------------------------------------------------------------------
 .PHONY: stage-load
-stage-load: ## PUT NDJSON to internal stage + COPY INTO RAW (no external storage)
+stage-load: ## PUT NDJSON to internal stage + COPY INTO RAW
 	@echo ">> Staging + loading SYNTHETIC data into $(SF_DATABASE).RAW"
 	$(SNOW) sql --connection $(SF_CONN) --filename snowflake/load/put_and_copy.sql \
 		-D "env=$(ENV)" -D "database=$(SF_DATABASE)" -D "data_out=$(DATA_OUT)"
@@ -190,7 +190,7 @@ dcm-deploy: ## Apply the DCM infra change set (CREATE/ALTER/DROP to match defini
 
 # -----------------------------------------------------------------------------
 .PHONY: tf-init
-tf-init: ## terraform init (Snowflake provider only — no cloud backends)
+tf-init: ## terraform init (Snowflake provider)
 	cd terraform && terraform init
 
 # -----------------------------------------------------------------------------

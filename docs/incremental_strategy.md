@@ -1,6 +1,6 @@
 # Incremental Strategy
 
-How the platform processes only new/changed data while remaining correct under late arrivals, duplicates, adjustments, voids, and reversals. All SQL runs in Snowflake (dbt on `WH_CLAIMS_TRANSFORM`); orchestration, if scheduled, is via Snowflake Tasks. No external orchestrator.
+How the platform processes only new/changed data while remaining correct under late arrivals, duplicates, adjustments, voids, and reversals. All SQL runs in Snowflake (dbt on `WH_CLAIMS_TRANSFORM`); orchestration, if scheduled, is via Snowflake Tasks.
 
 > ⚠️ **Synthetic data.** Not real CMS/Medicare/Medicaid/PHI.
 

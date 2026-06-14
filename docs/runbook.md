@@ -1,6 +1,6 @@
 # Operational Runbook
 
-Diagnose and resolve common operational issues. The DCM (`CONTROL.*`/`AUDIT.*`) is your primary instrument — most answers are a query away. Everything is inside Snowflake; there is no external orchestrator or object store to check.
+Diagnose and resolve common operational issues. The DCM (`CONTROL.*`/`AUDIT.*`) is your primary instrument — most answers are a query away. Everything runs inside Snowflake, so the DCM tables are where you look first.
 
 > ⚠️ **Synthetic data.** Not real CMS/Medicare/Medicaid/PHI.
 

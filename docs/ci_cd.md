@@ -1,6 +1,6 @@
 # CI/CD
 
-GitHub Actions CI/CD for the dbt project. Everything targets Snowflake only — there is no external build infra beyond GitHub Actions runners invoking dbt against Snowflake.
+GitHub Actions CI/CD for the dbt project. GitHub Actions runners invoke dbt against Snowflake, which is the build and deploy target.
 
 > ⚠️ **Synthetic data.** CI runs against synthetic data only; no PHI.
 
@@ -80,7 +80,7 @@ On merge to `main`:
 ## 4. dbt state comparison & manifest artifacts
 
 - `state:modified+` compares the current code's manifest to the **stored prod manifest** to compute the minimal set of models to build (modified + downstream `+`).
-- Manifests are passed between jobs as **GitHub Actions artifacts** (no S3/GCS — keeps the single-vendor constraint; artifacts live in GitHub, not cloud object storage).
+- Manifests are passed between jobs as **GitHub Actions artifacts** (artifacts live in GitHub).
 - Deferral (`--defer`) lets PR builds reference unchanged prod models instead of rebuilding them.
 
 ---

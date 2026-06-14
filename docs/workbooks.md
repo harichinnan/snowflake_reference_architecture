@@ -1,6 +1,6 @@
 # Snowflake Workbooks
 
-Interactive exploration of the synthetic claims platform using **Snowflake Workbooks** — SQL + charts directly in Snowflake, no external BI tool (consistent with the single-vendor constraint). Workbooks read the certified `GOLD`/`SEMANTIC` layers using `WH_CLAIMS_ANALYST` and role `CLAIMS_ANALYST`.
+Interactive exploration of the synthetic claims platform using **Snowflake Workbooks** — SQL + charts directly in Snowflake. Workbooks read the certified `GOLD`/`SEMANTIC` layers using `WH_CLAIMS_ANALYST` and role `CLAIMS_ANALYST`.
 
 > ⚠️ **Synthetic data.** Not real CMS/Medicare/Medicaid/PHI.
 

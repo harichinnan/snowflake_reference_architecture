@@ -1,6 +1,6 @@
 # =============================================================================
 # snowflake-claims-platform — .gitignore
-# Single-vendor Snowflake project. Keep secrets, state, and generated data out.
+# Snowflake-centric project. Keep secrets, state, and generated data out.
 # =============================================================================
 
 # --- Python ------------------------------------------------------------------
@@ -25,7 +25,7 @@ dbt_packages/
 logs/
 .user.yml
 
-# --- Terraform (Snowflake provider only; no cloud backends) -------------------
+# --- Terraform (Snowflake provider) ------------------------------------------
 .terraform/
 .terraform.lock.hcl
 *.tfstate
@@ -59,6 +59,10 @@ data_generator/output/*.ndjson
 data_generator/output/*.gz
 data_generator/output/*.csv
 !data_generator/output/.gitkeep
+
+# --- Airflow runtime (containers write these) --------------------------------
+airflow/logs/
+airflow/plugins/
 
 # --- OS / IDE ----------------------------------------------------------------
 .DS_Store

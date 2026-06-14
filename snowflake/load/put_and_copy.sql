@@ -1,8 +1,8 @@
 -- =============================================================================
 -- put_and_copy.sql  ::  Ingest SYNTHETIC claims NDJSON directly into Snowflake
 -- -----------------------------------------------------------------------------
--- 100% Snowflake ingestion: PUT local NDJSON -> RAW internal stage -> COPY INTO
--- the BRONZE landing tables. NO external object storage (no S3/GCS/Blob).
+-- Snowflake ingestion: PUT local NDJSON -> RAW internal stage -> COPY INTO
+-- the BRONZE landing tables.
 --
 -- Run from the REPO ROOT (file:// paths are relative to the process CWD), with a
 -- role that can write BRONZE (ACCOUNTADMIN / CLAIMS_SYSADMIN / CLAIMS_LOADER):

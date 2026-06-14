@@ -4,8 +4,8 @@
 -- "dbt Projects on Snowflake" — run dbt NATIVELY inside Snowflake (server-side)
 -- instead of (or in addition to) local dbt Core. This is the most Snowflake-
 -- native orchestration path: the dbt project becomes a schema-level DBT PROJECT
--- object, executed with EXECUTE DBT PROJECT and schedulable with a TASK. No
--- external runner, no cloud — 100% Snowflake.
+-- object, executed with EXECUTE DBT PROJECT and schedulable with a TASK, running
+-- server-side inside Snowflake.
 --
 -- GA reference:
 --   https://docs.snowflake.com/en/user-guide/data-engineering/dbt-projects-on-snowflake

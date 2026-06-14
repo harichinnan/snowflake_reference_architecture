@@ -1,12 +1,12 @@
 # snowflake-claims-platform
 
-A **100% Snowflake-only** reference architecture for a **synthetic** healthcare claims data platform. It demonstrates an end-to-end, production-grade lakehouse-on-Snowflake pattern: ingestion through Snowflake internal stages, a layered medallion model (RAW -> BRONZE -> SILVER_CANONICAL -> SILVER_DIMENSIONAL -> GOLD), a governed semantic layer, Cortex (Analyst / Search / Agent), and a Snowflake-managed MCP server that exposes the platform to AI clients.
+A **Snowflake-centric** reference architecture for a **synthetic** healthcare claims data platform. It demonstrates an end-to-end, production-grade lakehouse-on-Snowflake pattern: ingestion through Snowflake internal stages, a layered medallion model (RAW -> BRONZE -> SILVER_CANONICAL -> SILVER_DIMENSIONAL -> GOLD), a governed semantic layer, Cortex (Analyst / Search / Agent), and a Snowflake-managed MCP server that exposes the platform to AI clients.
 
 ---
 
 > # ⚠️ SYNTHETIC DATA — NOT REAL CMS / MEDICARE / MEDICAID / PHI
 >
-> **Every record in this platform is fully synthetic and machine-generated.** It is **not** derived from CMS RIF, Medicare claims, Medicaid TAF, any payer extract, or any real patient. It contains **no PHI and no PII**. Member IDs, provider NPIs, diagnoses, and dollar amounts are fabricated for demonstration and interview purposes only. Do **not** present this data as real claims data, and do **not** load real PHI into this repository or its Snowflake objects.
+> **Every record in this platform is fully synthetic and machine-generated.** It is **not** derived from CMS RIF, Medicare claims, Medicaid TAF, any payer extract, or any real patient. It contains **no PHI and no PII**. Member IDs, provider NPIs, diagnoses, and dollar amounts are fabricated for demonstration purposes only. Do **not** present this data as real claims data, and do **not** load real PHI into this repository or its Snowflake objects.
 
 ---
 
@@ -14,31 +14,30 @@ A **100% Snowflake-only** reference architecture for a **synthetic** healthcare 
 
 1. [Project overview](#project-overview)
 2. [Architecture](#architecture)
-3. [Hard constraints](#hard-constraints)
-4. [Local prerequisites](#local-prerequisites)
-5. [Snowflake setup](#snowflake-setup)
-6. [Terraform setup](#terraform-setup)
-7. [Synthetic data generation](#synthetic-data-generation)
-8. [Loading data (internal stage + PUT + COPY INTO)](#loading-data)
-9. [Running dbt](#running-dbt)
-10. [CI/CD behavior](#cicd-behavior)
-11. [Data Control Model (DCM)](#data-control-model-dcm)
-12. [Incremental strategy](#incremental-strategy)
-13. [Semantic layer](#semantic-layer)
-14. [Workbooks](#workbooks)
-15. [Cortex: Analyst / Search / Agent](#cortex-analyst--search--agent)
-16. [Snowflake-managed MCP](#snowflake-managed-mcp)
-17. [Local MCP client setup](#local-mcp-client-setup)
-18. [ChatGPT limitations](#chatgpt-limitations)
-19. [Security notes](#security-notes)
-20. [Limitations](#limitations)
-21. [Docs index](#docs-index)
+3. [Local prerequisites](#local-prerequisites)
+4. [Snowflake setup](#snowflake-setup)
+5. [Terraform setup](#terraform-setup)
+6. [Synthetic data generation](#synthetic-data-generation)
+7. [Loading data (internal stage + PUT + COPY INTO)](#loading-data)
+8. [Running dbt](#running-dbt)
+9. [CI/CD behavior](#cicd-behavior)
+10. [Data Control Model (DCM)](#data-control-model-dcm)
+11. [Incremental strategy](#incremental-strategy)
+12. [Semantic layer](#semantic-layer)
+13. [Workbooks](#workbooks)
+14. [Cortex: Analyst / Search / Agent](#cortex-analyst--search--agent)
+15. [Snowflake-managed MCP](#snowflake-managed-mcp)
+16. [Local MCP client setup](#local-mcp-client-setup)
+17. [ChatGPT limitations](#chatgpt-limitations)
+18. [Security notes](#security-notes)
+19. [Limitations](#limitations)
+20. [Docs index](#docs-index)
 
 ---
 
 ## Project overview
 
-This repo is a **single-vendor (Snowflake) implementation** of a claims analytics platform. It shows how to build the entire stack — ingestion, transformation, orchestration, quality control, semantics, and AI access — **without any external cloud object storage or external orchestration**. There is no S3, no Azure Blob, no GCS, no Airflow, no Databricks, no Kafka, no Lambda, no Glue, no EMR. Ingestion is done **only** with Snowflake internal stages plus `PUT` and `COPY INTO`.
+This repo is a **Snowflake-centric implementation** of a claims analytics platform. It shows how to build the entire stack — ingestion, transformation, orchestration, quality control, semantics, and AI access — on Snowflake. Ingestion uses Snowflake internal stages plus `PUT` and `COPY INTO`.
 
 The platform models a realistic claims domain:
 
@@ -48,7 +47,7 @@ The platform models a realistic claims domain:
 - **Adjustments, voids, and reversals** (claim lifecycle).
 - A formal **Data Control Model (DCM)** that governs incremental loading, idempotency, quarantine, reprocessing, freshness SLAs, lineage, and auditability.
 
-It is designed to be **demoable in an interview** (see [`docs/demo_script_for_interviews.md`](docs/demo_script_for_interviews.md)) while still reflecting production engineering decisions.
+It is designed to be **easy to demo** (see [`docs/demo_script.md`](docs/demo_script.md)) while still reflecting production engineering decisions.
 
 ---
 
@@ -60,7 +59,7 @@ flowchart TB
         PY["data_generator/generate_synthetic_claims.py\nNDJSON output"]
     end
 
-    subgraph SF["Snowflake (single vendor — no external object storage)"]
+    subgraph SF["Snowflake"]
         direction TB
         STAGE["Internal Stage\n(PUT from SnowSQL / Snowflake CLI)"]
         RAW["RAW\nCOPY INTO landing tables"]
@@ -126,17 +125,6 @@ See [`docs/architecture.md`](docs/architecture.md) and [`docs/data_model.md`](do
 
 ---
 
-## Hard constraints
-
-These are non-negotiable design rules for this repo and are repeated throughout the docs:
-
-- **100% Snowflake-first.** No AWS / Azure / GCP / S3 / Blob / GCS / Airflow / Databricks / Kafka / Lambda / Glue / EMR / external object storage of any kind.
-- **Ingestion = Snowflake internal stages + `PUT` + `COPY INTO` only.**
-- **Data is synthetic.** Never claim it is real Medicare / Medicaid / CMS RIF / TAF / PHI.
-- **MCP:** the **primary** server is the **Snowflake-managed MCP server**. The **Snowflake-Labs MCP** project is a **deprecated fallback only**.
-
----
-
 ## Local prerequisites
 
 You only need a local toolchain to **generate** data, **drive** Snowflake, and **run dbt**. Snowflake does all the heavy lifting.
@@ -184,7 +172,7 @@ DDL-only). See [`dcm/README.md`](dcm/README.md) for the full managed-vs-imperati
 split and the prune-safety notes.
 
 > **Three provisioning paths, pick one for core infra:** the **DCM project**
-> (Snowflake-native declarative, preferred for the single-vendor story),
+> (Snowflake-native declarative, preferred for a Snowflake-centric stack),
 > **Terraform** (external IaC alternative, below), or the original imperative
 > `snowflake/setup` scripts. The imperative scripts are still required for the
 > DCM-/Terraform-unsupported objects listed above regardless of which you choose.
@@ -201,7 +189,7 @@ make tf-plan ENV=dev
 make tf-apply ENV=dev
 ```
 
-`*.tfvars` are git-ignored (except `*.example`). State files are git-ignored; use a Snowflake-appropriate backend or a secured local backend — **do not** introduce S3/GCS/Azure backends (that would violate the single-vendor constraint).
+`*.tfvars` are git-ignored (except `*.example`). State files are git-ignored; use a Snowflake-appropriate backend or a secured local backend.
 
 ---
 
@@ -220,7 +208,7 @@ Output is git-ignored (only a `.gitkeep` is tracked). The generator emits realis
 
 ## Loading data
 
-Loading is **internal stage + `PUT` + `COPY INTO` only**. No external stage, no S3/GCS/Blob.
+Loading uses **internal stage + `PUT` + `COPY INTO`**.
 
 ```bash
 make stage-load ENV=dev
@@ -291,6 +279,24 @@ server-side, not 1.11. Native CD lives in
 [`.github/workflows/dbt_snowflake_native_cd.yml`](.github/workflows/dbt_snowflake_native_cd.yml).
 Full guide: [`docs/dbt_on_snowflake.md`](docs/dbt_on_snowflake.md).
 
+### Orchestrating dbt with **Airflow + Cosmos** (Docker)
+
+A containerized Apache Airflow stack in [`airflow/`](airflow/) runs the **same**
+dbt project with [astronomer-cosmos](https://astronomer.github.io/astronomer-cosmos/),
+which renders every dbt resource (seed → model → test) as its own Airflow task
+with the dependencies that match the dbt DAG — giving you scheduling, retries,
+and per-model observability.
+
+```bash
+cd airflow
+cp .env.example .env        # set AIRFLOW_CONN_SNOWFLAKE_CLAIMS (account/user/password/role)
+docker compose up --build   # http://localhost:8080 (admin/admin) -> trigger `claims_dbt_cosmos`
+```
+
+So the one dbt project can be orchestrated three ways — **Airflow + Cosmos**
+(above), **dbt Projects on Snowflake** (server-side `EXECUTE DBT PROJECT`), or
+**GitHub Actions** — pick what fits. Details: [`airflow/README.md`](airflow/README.md).
+
 ---
 
 ## CI/CD behavior
@@ -325,7 +331,7 @@ The `SEMANTIC` schema exposes governed, certified business definitions (metrics 
 
 ## Workbooks
 
-Snowflake **Workbooks** provide interactive SQL + chart exploration directly in Snowflake (no external BI tool, consistent with the single-vendor constraint). Starter sections include Claims Volume, Paid Amount Trend, Payer/Plan PMPM, Provider Utilization, Condition Cost, Late Arrivals Impact, a Data Quality / Quarantine dashboard, Adjustment/Reversal analysis, Eligibility member-month analysis, and Denial analysis. See [`docs/workbooks.md`](docs/workbooks.md).
+Snowflake **Workbooks** provide interactive SQL + chart exploration directly in Snowflake. Starter sections include Claims Volume, Paid Amount Trend, Payer/Plan PMPM, Provider Utilization, Condition Cost, Late Arrivals Impact, a Data Quality / Quarantine dashboard, Adjustment/Reversal analysis, Eligibility member-month analysis, and Denial analysis. See [`docs/workbooks.md`](docs/workbooks.md).
 
 ---
 
@@ -366,7 +372,7 @@ Configure MCP-compatible hosts (Claude Desktop, Cursor, VS Code) to connect to t
 - **Key-pair auth preferred** over passwords for all programmatic access; private keys (`*.p8`) are git-ignored.
 - **Least privilege RBAC:** `CLAIMS_MCP_READER` is read-only; loaders/transformers are scoped per layer; `CLAIMS_SECURITY_ADMIN` owns grants/policies.
 - **No secrets in the repo:** `.env`, `*.tfvars` (except `*.example`), and keys are ignored.
-- **No external object storage:** ingestion never leaves Snowflake's internal stages, eliminating an entire class of bucket-exposure risks.
+- **Internal-stage ingestion:** loading through Snowflake's internal stages keeps data inside Snowflake's security boundary.
 - **Synthetic data only:** no PHI/PII ever enters the platform.
 
 ---
@@ -376,7 +382,6 @@ Configure MCP-compatible hosts (Claude Desktop, Cursor, VS Code) to connect to t
 - Synthetic data does not capture every real-world claims edge case; distributions are illustrative.
 - This is a reference architecture, not a certified production deployment — review RBAC, network policy, and cost controls before any real use.
 - Cortex and MCP feature availability depend on your Snowflake edition, region, and account entitlements.
-- The single-vendor constraint is intentional and means some patterns (external streaming, third-party orchestration) are deliberately out of scope.
 
 ---
 
@@ -389,7 +394,8 @@ Configure MCP-compatible hosts (Claude Desktop, Cursor, VS Code) to connect to t
 - [`docs/ci_cd.md`](docs/ci_cd.md)
 - [`dcm/README.md`](dcm/README.md) — infrastructure as a Snowflake DCM (Declarative Change Management) project
 - [`docs/dbt_on_snowflake.md`](docs/dbt_on_snowflake.md) — run dbt natively inside Snowflake
+- [`airflow/README.md`](airflow/README.md) — orchestrate dbt with Airflow + Cosmos (Docker)
 - [`docs/cortex_mcp_setup.md`](docs/cortex_mcp_setup.md)
 - [`docs/workbooks.md`](docs/workbooks.md)
 - [`docs/runbook.md`](docs/runbook.md)
-- [`docs/demo_script_for_interviews.md`](docs/demo_script_for_interviews.md)
+- [`docs/demo_script.md`](docs/demo_script.md)

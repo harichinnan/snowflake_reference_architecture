@@ -2,7 +2,7 @@
    001_create_roles.sql
    snowflake-claims-platform :: Role hierarchy & access control bootstrap
    -----------------------------------------------------------------------------
-   100% Snowflake-only reference architecture (synthetic claims data).
+   Snowflake-centric reference architecture (synthetic claims data).
    NOTE: All data in this platform is SYNTHETIC. There is NO real PHI/PII.
          The role model below still mirrors a real HIPAA-grade least-privilege
          design so the patterns are production-faithful.

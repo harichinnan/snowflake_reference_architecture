@@ -1,6 +1,6 @@
 # Architecture
 
-End-to-end architecture for **snowflake-claims-platform** — a 100% Snowflake-only synthetic healthcare claims platform.
+End-to-end architecture for **snowflake-claims-platform** — a Snowflake-centric synthetic healthcare claims platform.
 
 > ⚠️ **Synthetic data.** Every record is machine-generated. It is **not** real CMS/Medicare/Medicaid/CMS RIF/TAF data and contains **no PHI/PII**.
 
@@ -8,8 +8,8 @@ End-to-end architecture for **snowflake-claims-platform** — a 100% Snowflake-o
 
 ## 1. Design principles
 
-1. **Single vendor (Snowflake).** No AWS/Azure/GCP, no S3/Blob/GCS, no Airflow/Databricks/Kafka/Lambda/Glue/EMR, no external object storage. Every capability — storage, compute, orchestration, ML, semantics, AI serving — is a Snowflake feature.
-2. **Internal-stage ingestion only.** Files are uploaded to a Snowflake **internal stage** with `PUT` and loaded with `COPY INTO`. There is no external stage.
+1. **Built on Snowflake.** Storage, compute, orchestration, ML, semantics, and AI serving are all delivered as Snowflake features, keeping the stack cohesive and governed by one RBAC and audit surface.
+2. **Internal-stage ingestion.** Files are uploaded to a Snowflake **internal stage** with `PUT` and loaded with `COPY INTO`.
 3. **Medallion layering** with a clear contract at each boundary.
 4. **A formal Data Control Model (DCM)** governs every load (watermarks, idempotency, quality, quarantine, reprocessing, lineage, SLA). See [`data_control_model.md`](data_control_model.md).
 5. **Governed semantics first.** Metrics are defined once in `SEMANTIC` and reused by Cortex and Workbooks.
@@ -102,14 +102,14 @@ flowchart TB
 
 ---
 
-## 5. No external object storage — why and how
+## 5. Internal-stage ingestion — why and how
 
-The single-vendor rule eliminates external buckets entirely. Practical implications:
+Ingestion uses Snowflake internal stages. Practical implications:
 
-- **Files** are uploaded to a **Snowflake internal stage** with `PUT`; nothing is ever written to S3/GCS/Blob.
-- **State** for Terraform should use a Snowflake-friendly or secured-local backend — **never** an S3/GCS/Azure backend.
-- **Orchestration** is **Snowflake Tasks** (and Streams/Dynamic Tables), not Airflow.
-- This removes a whole class of misconfigured-bucket exposure risk and keeps governance inside Snowflake RBAC.
+- **Files** are uploaded to a **Snowflake internal stage** with `PUT` and loaded with `COPY INTO`.
+- **State** for Terraform should use a Snowflake-friendly or secured-local backend.
+- **Orchestration** is handled by **Snowflake Tasks** (and Streams/Dynamic Tables).
+- Keeping ingestion inside Snowflake's internal stages keeps data within Snowflake's security boundary and governance under Snowflake RBAC.
 
 ---
 

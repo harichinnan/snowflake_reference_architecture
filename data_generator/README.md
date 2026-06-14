@@ -17,9 +17,8 @@
 A deterministic, seed-driven generator for the **snowflake-claims-platform**.
 It writes newline-delimited JSON (NDJSON) event files that model a real claims
 ingestion landing zone, then those files are `PUT` to Snowflake **internal
-stages** and `COPY INTO` bronze (raw) tables. This is a **Snowflake-only**
-project: the generator writes **local** files; there is no cloud-storage
-dependency (no S3/GCS/Azure).
+stages** and `COPY INTO` bronze (raw) tables. The generator writes **local**
+files that are then loaded into Snowflake.
 
 ---
 
@@ -160,8 +159,8 @@ to exercise cross-file quarantine.
 
 ## Mapping to Snowflake stages and bronze tables
 
-This is a **Snowflake-only** flow. Files are loaded from a local path to a
-Snowflake **internal stage** via `PUT`, then `COPY INTO` raw bronze tables.
+Files are loaded from a local path to a Snowflake **internal stage** via `PUT`,
+then `COPY INTO` raw bronze tables.
 
 ```sql
 -- 1) One internal stage per event stream (or a single stage with subpaths).

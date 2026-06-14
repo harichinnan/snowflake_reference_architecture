@@ -1,6 +1,6 @@
 # Data Control Model (DCM)
 
-The **DCM is the operating model for production data reliability** in this platform. It is the contract that makes loads **incremental, idempotent, auditable, recoverable, and trustworthy** — the difference between a demo pipeline and one you can run in production. Every load and transform in this 100% Snowflake platform is wrapped by the DCM, realized as `CONTROL.*` and `AUDIT.*` tables and enforced by dbt macros and tests.
+The **DCM is the operating model for production data reliability** in this platform. It is the contract that makes loads **incremental, idempotent, auditable, recoverable, and trustworthy** — the difference between a demo pipeline and one you can run in production. Every load and transform in this platform is wrapped by the DCM, realized as `CONTROL.*` and `AUDIT.*` tables and enforced by dbt macros and tests.
 
 > ⚠️ **Synthetic data.** Not real CMS/Medicare/Medicaid/PHI. The DCM governs synthetic records only.
 
@@ -219,6 +219,6 @@ sequenceDiagram
 5. **lineage:** post-hook writes `AUDIT.LINEAGE_EDGES`.
 6. **on-run-end:** advance `CONTROL.WATERMARKS`, update `CONTROL.SLA_FRESHNESS`, close `AUDIT.RUN_LOG`.
 
-This loop runs entirely inside Snowflake (dbt on `WH_CLAIMS_TRANSFORM`, orchestrated by Snowflake Tasks if scheduled). No external orchestrator.
+This loop runs inside Snowflake (dbt on `WH_CLAIMS_TRANSFORM`, orchestrated by Snowflake Tasks if scheduled).
 
 See [`incremental_strategy.md`](incremental_strategy.md) for the SQL behind watermarks, lookback, dedupe, and MERGE, and [`runbook.md`](runbook.md) for operating the DCM.

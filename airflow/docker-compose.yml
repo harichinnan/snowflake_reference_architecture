@@ -1,0 +1,93 @@
+# =============================================================================
+# Airflow (LocalExecutor + Postgres) for the claims platform dbt pipeline.
+# Cosmos renders the dbt project (mounted from ../dbt) as native Airflow tasks
+# and runs them against Snowflake using the `snowflake_claims` connection.
+#
+# Quick start:
+#   cp .env.example .env        # then fill AIRFLOW_CONN_SNOWFLAKE_CLAIMS
+#   docker compose up --build   # http://localhost:8080  (admin / admin)
+#   # trigger the `claims_dbt_cosmos` DAG
+#
+# Data is SYNTHETIC -- not real CMS/Medicare/Medicaid/PHI.
+# =============================================================================
+x-airflow-common: &airflow-common
+  build: .
+  env_file: .env
+  environment: &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+    # The dbt project (shared with the rest of the repo) and dbt venv path.
+    DBT_PROJECT_DIR: /opt/airflow/dbt_project
+    DBT_VENV_DIR: /home/airflow/dbt_venv
+    # Snowflake connection consumed by Cosmos (set in .env).
+    AIRFLOW_CONN_SNOWFLAKE_CLAIMS: ${AIRFLOW_CONN_SNOWFLAKE_CLAIMS}
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./plugins:/opt/airflow/plugins
+    # Mount the repo's dbt project so Airflow/Cosmos run the SAME models.
+    - ../dbt:/opt/airflow/dbt_project
+  user: "${AIRFLOW_UID:-50000}:0"
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db-volume:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+    restart: always
+
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username "${_AIRFLOW_WWW_USER_USERNAME:-admin}" \
+          --password "${_AIRFLOW_WWW_USER_PASSWORD:-admin}" \
+          --firstname Admin --lastname User --role Admin --email admin@example.com || true
+    restart: on-failure
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 30s
+      retries: 5
+    restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      retries: 5
+    restart: always
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-db-volume:

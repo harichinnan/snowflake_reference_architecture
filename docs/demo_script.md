@@ -1,6 +1,6 @@
-# Demo Script (for interviews)
+# Demo Script
 
-A ready-to-run narrative for demoing **snowflake-claims-platform** in an interview. Two timings (10 and 30 minutes), system-design talking points, production tradeoffs, and how to be precise about synthetic vs real claims.
+A ready-to-run guided walkthrough for demoing **snowflake-claims-platform**. Two timings (10 and 30 minutes), system-design talking points, production tradeoffs, and how to be precise about synthetic vs real claims.
 
 > ⚠️ **Always open with the disclaimer:** "This is **100% synthetic, machine-generated** data. It is **not** real CMS/Medicare/Medicaid/CMS RIF/TAF data and contains **no PHI**. I built the schema to *look like* claims so the engineering is realistic, but every value is fabricated."
 
@@ -8,13 +8,13 @@ A ready-to-run narrative for demoing **snowflake-claims-platform** in an intervi
 
 ## The one-sentence pitch
 
-"A 100% Snowflake-only claims analytics platform — internal-stage ingestion, a medallion model, a formal Data Control Model for production reliability, a certified semantic layer, and AI access through Snowflake-managed MCP — with **no external cloud storage or orchestration at all**."
+"A Snowflake-centric claims analytics platform — internal-stage ingestion, a medallion model, a formal Data Control Model for production reliability, a certified semantic layer, and AI access through Snowflake-managed MCP."
 
 ---
 
 ## 10-minute demo
 
-1. **(0:00) Framing + disclaimer (1 min).** State the synthetic-data disclaimer. Then: "Single vendor, Snowflake only — no S3/Airflow/Databricks. Ingestion is internal stage + PUT + COPY INTO."
+1. **(0:00) Framing + disclaimer (1 min).** State the synthetic-data disclaimer. Then: "Built on Snowflake. Ingestion is internal stage + PUT + COPY INTO."
 2. **(1:00) Architecture (1.5 min).** Show the README Mermaid diagram. Walk RAW -> BRONZE (VARIANT) -> SILVER_CANONICAL -> SILVER_DIMENSIONAL -> GOLD -> SEMANTIC/CORTEX -> MCP, with CONTROL + AUDIT cross-cutting.
 3. **(2:30) Ingestion (1.5 min).** Show `make stage-load`: `PUT` to `@RAW.CLAIMS_INTERNAL_STAGE`, then `COPY INTO RAW`. Emphasize *internal* stage and that COPY rejects go to `CONTROL.QUARANTINE`.
 4. **(4:00) The DCM (2 min).** Open `docs/data_control_model.md` and show the use-case matrix. Pick three rows live: **incremental load** (watermark + lookback), **idempotent load** (QUALIFY + MERGE), **quarantine**. "This is what makes it production, not a demo."
@@ -45,7 +45,7 @@ Use the 10-minute flow as the spine, then go deep:
 - **Why `business_event_ts` as the watermark (not `ingest_ts`)?** Correct period attribution and late-arrival handling. `ingest_ts` would silently lose or misattribute late claims.
 - **Why warehouse-per-workload?** Cost isolation and concurrency control (load vs transform vs analyst vs CI vs MCP).
 - **Why Snowflake-managed MCP + read-only role?** AI access inherits Snowflake RBAC; clients can't mutate data and every query is audited.
-- **Why single-vendor?** Eliminates external bucket exposure and cross-system orchestration complexity; everything is governed by one RBAC and one audit surface. Tradeoff: some streaming/3rd-party patterns are intentionally out of scope.
+- **Why a Snowflake-centric stack?** Keeping storage, compute, and governance in one platform means everything is governed by one RBAC and one audit surface, which simplifies operability and reduces moving parts.
 
 ---
 
@@ -55,7 +55,7 @@ Use the 10-minute flow as the spine, then go deep:
 - **Dynamic Tables vs dbt:** Dynamic Tables reduce orchestration code but give less control over DCM watermark/quarantine semantics; dbt is the default here, Tasks schedule it.
 - **Quarantine vs fail-fast:** quarantining keeps the pipeline moving but requires disciplined replay so quarantine doesn't silently grow.
 - **Certification overhead:** certifying metrics adds process but prevents metric drift across Cortex and Workbooks.
-- **Single-vendor lock-in** is a deliberate constraint here; in a real org you'd weigh portability.
+- **A Snowflake-centric design** keeps the moving parts in one platform; in a real org you'd weigh portability against that simplicity.
 
 ---
 

@@ -1,0 +1,9 @@
+# Extra Python deps layered onto the apache/airflow base image (see Dockerfile).
+# astronomer-cosmos renders the dbt project as native Airflow tasks.
+# The Snowflake provider supplies the `snowflake_claims` Airflow connection that
+# Cosmos maps into a dbt profile.
+#
+# NOTE: dbt itself is installed in a SEPARATE virtualenv in the Dockerfile
+# (Cosmos best practice) to avoid dependency conflicts with Airflow.
+astronomer-cosmos==1.8.2
+apache-airflow-providers-snowflake==5.8.1

@@ -387,8 +387,8 @@ resource "snowflake_grant_privileges_to_account_role" "warehouse_usage" {
 # =============================================================================
 # INTERNAL STAGES (one per source feed, all in RAW)
 # -----------------------------------------------------------------------------
-# INTERNAL stages only — no external cloud storage in this platform. Data is
-# PUT into these stages and COPY INTO bronze tables.
+# Snowflake INTERNAL stages. Data is PUT into these stages and COPY INTO bronze
+# tables.
 # PRODUCTION HARDENING:
 #   - Snowflake-managed encryption is applied automatically to internal stages.
 #   - Restrict stage access to the LOADER role (write) and TRANSFORMER/CI (read)

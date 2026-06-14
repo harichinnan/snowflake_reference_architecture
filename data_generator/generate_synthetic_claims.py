@@ -30,8 +30,7 @@
 # downstream pipeline is expected to detect and quarantine the malformed rows
 # we deliberately inject here.
 #
-# Snowflake-only: this generator writes LOCAL NDJSON files. There is no cloud
-# storage dependency. The expected operational flow is:
+# This generator writes LOCAL NDJSON files. The expected operational flow is:
 #     PUT file://output/*.ndjson @<internal_stage>;
 #     COPY INTO bronze_<event>_raw FROM @<internal_stage>/...;
 #
