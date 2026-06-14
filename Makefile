@@ -169,6 +169,25 @@ dbt-sf-run-task: ## Trigger the scheduled native dbt build TASK once
 	$(SNOW) sql --connection $(SF_CONN) \
 		-q "EXECUTE TASK $(SF_DATABASE).DBT.CLAIMS_DBT_BUILD_DAILY;"
 
+# ===== Infrastructure as a Snowflake DCM project (declarative; see dcm/) ======
+# Provisions roles/warehouses/db/schemas/control+audit+bronze+semantic tables +
+# grants declaratively. PLAN previews the change set; DEPLOY applies it. The PRD
+# variant swaps database -> CLAIMS_PROD via the PROD manifest configuration.
+DCM_PROJECT_OBJ ?= OPS_DB.DCM.CLAIMS_INFRA_DCM_DEV
+DCM_TARGET      ?= DCM_DEV
+
+.PHONY: dcm-create
+dcm-create: ## Create the DCM PROJECT object (first time; needs OPS_DB.DCM bootstrap)
+	$(SNOW) dcm create $(DCM_PROJECT_OBJ) --from dcm --target $(DCM_TARGET) --connection $(SF_CONN)
+
+.PHONY: dcm-plan
+dcm-plan: ## Preview the infra change set (dry run -> out/plan_result.json)
+	$(SNOW) dcm plan $(DCM_PROJECT_OBJ) --from dcm --target $(DCM_TARGET) --connection $(SF_CONN) --save-output
+
+.PHONY: dcm-deploy
+dcm-deploy: ## Apply the DCM infra change set (CREATE/ALTER/DROP to match definitions)
+	$(SNOW) dcm deploy $(DCM_PROJECT_OBJ) --from dcm --target $(DCM_TARGET) --connection $(SF_CONN) --save-output
+
 # -----------------------------------------------------------------------------
 .PHONY: tf-init
 tf-init: ## terraform init (Snowflake provider only — no cloud backends)

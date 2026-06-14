@@ -1,0 +1,76 @@
+# =============================================================================
+# DCM (Declarative Change Management) — infra plan on PR, deploy on main
+# -----------------------------------------------------------------------------
+# Declaratively manages the platform infrastructure (roles, warehouses,
+# databases, schemas, control/audit/bronze/semantic tables, grants) as a
+# Snowflake DCM PROJECT. PRs touching dcm/** get a dry-run PLAN; merges to main
+# DEPLOY. Runs entirely through the Snowflake CLI -- the change set is computed
+# and applied INSIDE Snowflake.
+#
+# Auth: key-pair (SNOWFLAKE_JWT) -- SSO/externalbrowser cannot run headless.
+# Secrets: SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PRIVATE_KEY (base64 .p8),
+#          SNOWFLAKE_ROLE (ACCOUNTADMIN or a delegated infra admin).
+# =============================================================================
+name: dcm-infra
+
+on:
+  pull_request:
+    paths: ['dcm/**']
+  push:
+    branches: [main]
+    paths: ['dcm/**']
+  workflow_dispatch:
+
+concurrency:
+  group: dcm-infra-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  dcm:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT: OPS_DB.DCM.CLAIMS_INFRA_DCM_DEV
+      TARGET: DCM_DEV
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install Snowflake CLI
+        run: pip install "snowflake-cli==3.20.0"
+
+      - name: Configure snow connection (key-pair)
+        run: |
+          echo "${{ secrets.SNOWFLAKE_PRIVATE_KEY }}" | base64 -d > "$RUNNER_TEMP/sf_key.p8"
+          chmod 600 "$RUNNER_TEMP/sf_key.p8"
+          mkdir -p "$RUNNER_TEMP/snowflake"
+          cat > "$RUNNER_TEMP/snowflake/config.toml" <<EOF
+          default_connection_name = "ci"
+          [connections.ci]
+          account = "${{ secrets.SNOWFLAKE_ACCOUNT }}"
+          user = "${{ secrets.SNOWFLAKE_USER }}"
+          authenticator = "SNOWFLAKE_JWT"
+          private_key_file = "$RUNNER_TEMP/sf_key.p8"
+          role = "${{ secrets.SNOWFLAKE_ROLE }}"
+          EOF
+          chmod 600 "$RUNNER_TEMP/snowflake/config.toml"
+          echo "SNOWFLAKE_HOME=$RUNNER_TEMP/snowflake" >> "$GITHUB_ENV"
+
+      # PR -> PLAN only (dry run). Review the change set before merging.
+      - name: dcm plan (dry run)
+        if: github.event_name == 'pull_request'
+        run: |
+          snow dcm plan "$PROJECT" --from dcm --target "$TARGET" --connection ci --save-output
+          echo '### DCM plan' >> "$GITHUB_STEP_SUMMARY"
+          [ -f out/plan_result.json ] && (echo '```json'; cat out/plan_result.json; echo '```') >> "$GITHUB_STEP_SUMMARY" || true
+
+      # main -> DEPLOY (apply). Gate with a protected environment + reviewers.
+      - name: dcm deploy
+        if: github.event_name != 'pull_request'
+        run: snow dcm deploy "$PROJECT" --from dcm --target "$TARGET" --connection ci --save-output
+
+      - name: Cleanup key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/sf_key.p8"

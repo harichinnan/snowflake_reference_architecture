@@ -159,28 +159,35 @@ cp .env.example .env
 
 ## Snowflake setup
 
-The numbered setup scripts under `snowflake/setup/001-012` build the account-level scaffolding **in order**. Run them with SnowSQL or the Snowflake CLI (the `Makefile` target `sf-setup` does this for you).
-
-Typical script ordering (idempotent, re-runnable):
-
-| Script | Creates |
-|---|---|
-| `001` | Databases `CLAIMS_DEV`, `CLAIMS_PROD`. |
-| `002` | Schemas: `RAW`, `BRONZE`, `SILVER_CANONICAL`, `SILVER_DIMENSIONAL`, `GOLD`, `CONTROL`, `AUDIT`, `SEMANTIC`, `CORTEX`. |
-| `003` | Warehouses: `WH_CLAIMS_LOAD`, `WH_CLAIMS_TRANSFORM`, `WH_CLAIMS_ANALYST`, `WH_CLAIMS_CI`, `WH_CLAIMS_MCP`. |
-| `004` | Roles: `CLAIMS_SYSADMIN`, `CLAIMS_LOADER`, `CLAIMS_TRANSFORMER`, `CLAIMS_ANALYST`, `CLAIMS_CI`, `CLAIMS_MCP_READER`, `CLAIMS_SECURITY_ADMIN`. |
-| `005` | Role hierarchy and warehouse/database grants. |
-| `006` | Internal stages + file formats (NDJSON/JSON) in `RAW`. |
-| `007` | `RAW` landing tables. |
-| `008` | `CONTROL` tables (watermarks, batches, idempotency, quarantine, reprocessing, SLA). |
-| `009` | `AUDIT` tables (run logs, DQ results, lineage, access audit). |
-| `010` | `SEMANTIC` views / semantic model scaffolding. |
-| `011` | `CORTEX` Search services + Analyst registration + Agent objects. |
-| `012` | Snowflake-managed MCP server configuration + `CLAIMS_MCP_READER` grants. |
+Core infrastructure is provisioned **declaratively** as a Snowflake **DCM project**
+(Declarative Change Management) under [`dcm/`](dcm/) — the Snowflake-native
+counterpart to *dbt Projects on Snowflake*. You describe the desired state with
+`DEFINE` statements and Snowflake computes/applies the diff (`CREATE`/`ALTER`/`DROP`)
+**inside** Snowflake. This is the home for roles, warehouses, databases, schemas,
+the `CONTROL`/`AUDIT`/`BRONZE` landing + `SEMANTIC` doc tables, and grants.
 
 ```bash
-make sf-setup ENV=dev
+# one-time bootstrap (hosts the DCM PROJECT object outside the db it manages):
+#   CREATE DATABASE IF NOT EXISTS OPS_DB; CREATE SCHEMA OPS_DB.DCM;
+make dcm-create          # create the PROJECT object (first time)
+make dcm-plan            # preview the change set (dry run)
+make dcm-deploy          # apply
 ```
+
+A handful of objects **cannot** be `DEFINE`d by DCM and remain imperative under
+`snowflake/setup/` (run via `make sf-setup` / individual `snow sql` calls):
+internal stages + file formats (`004`), streams/tasks (`007`), Cortex Search/Agent
+(`009`/`010`), Snowflake-managed MCP (`011`), the semantic VIEW + MCP views (`012`,
+they depend on dbt GOLD models), the external access integration + `DBT PROJECT`
+object (`013`), and the `PIPELINE_CONFIG`/`DATA_CONTRACT` **seed rows** (DCM is
+DDL-only). See [`dcm/README.md`](dcm/README.md) for the full managed-vs-imperative
+split and the prune-safety notes.
+
+> **Three provisioning paths, pick one for core infra:** the **DCM project**
+> (Snowflake-native declarative, preferred for the single-vendor story),
+> **Terraform** (external IaC alternative, below), or the original imperative
+> `snowflake/setup` scripts. The imperative scripts are still required for the
+> DCM-/Terraform-unsupported objects listed above regardless of which you choose.
 
 ---
 
@@ -380,6 +387,7 @@ Configure MCP-compatible hosts (Claude Desktop, Cursor, VS Code) to connect to t
 - [`docs/data_control_model.md`](docs/data_control_model.md)
 - [`docs/incremental_strategy.md`](docs/incremental_strategy.md)
 - [`docs/ci_cd.md`](docs/ci_cd.md)
+- [`dcm/README.md`](dcm/README.md) — infrastructure as a Snowflake DCM (Declarative Change Management) project
 - [`docs/dbt_on_snowflake.md`](docs/dbt_on_snowflake.md) — run dbt natively inside Snowflake
 - [`docs/cortex_mcp_setup.md`](docs/cortex_mcp_setup.md)
 - [`docs/workbooks.md`](docs/workbooks.md)

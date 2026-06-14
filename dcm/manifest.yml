@@ -1,0 +1,58 @@
+# =============================================================================
+# snowflake-claims-platform :: DCM (Declarative Change Management) project
+# -----------------------------------------------------------------------------
+# Declarative replacement for the imperative numbered setup scripts
+# (snowflake/setup/001-003, 005, 006, 012-tables, 014). Snowflake computes the
+# diff between these DEFINE files and the live account and CREATE/ALTER/DROPs to
+# match. Deployed INSIDE Snowflake as a schema-level PROJECT object.
+#
+# Deploy:  snow dcm deploy <project> --from dcm --target DCM_DEV
+# Preview: snow dcm plan   <project> --from dcm --target DCM_DEV
+# (or SQL: EXECUTE DCM PROJECT <project> PLAN|DEPLOY USING (database => '...'))
+#
+# What DCM does NOT manage (unsupported object types / DML) stays imperative --
+# see dcm/README.md: stages + file formats (004), streams/tasks (007), Cortex
+# Search/Agent + MCP (009-011), semantic VIEW (012), external access integration
+# + DBT PROJECT object (013), and seed DML (PIPELINE_CONFIG/DATA_CONTRACT rows).
+#
+# Data is SYNTHETIC -- not real CMS/Medicare/Medicaid/PHI.
+# =============================================================================
+manifest_version: 2
+type: DCM_PROJECT
+
+default_target: DCM_DEV
+
+targets:
+  # The PROJECT object lives in a small management schema (OPS_DB.DCM) so it does
+  # not manage its own container database. One-time bootstrap (NOT in DCM):
+  #   CREATE DATABASE IF NOT EXISTS OPS_DB;
+  #   CREATE SCHEMA  IF NOT EXISTS OPS_DB.DCM;
+  DCM_DEV:
+    account_identifier: VHYCQZG-PO12637
+    project_name: OPS_DB.DCM.CLAIMS_INFRA_DCM_DEV
+    templating_config: DEV
+
+  DCM_PROD:
+    account_identifier: VHYCQZG-PO12637
+    project_name: OPS_DB.DCM.CLAIMS_INFRA_DCM_PROD
+    templating_config: PROD
+
+templating:
+  # Resolution order: defaults < configuration < runtime --variable.
+  defaults:
+    database: "CLAIMS_DEV"
+    default_wh_size: "XSMALL"
+    transform_wh_size: "SMALL"
+    auto_suspend: 60
+    # Statement timeout guardrail (seconds) applied to warehouses.
+    statement_timeout: 3600
+
+  configurations:
+    DEV:
+      database: "CLAIMS_DEV"
+      auto_suspend: 60
+      transform_wh_size: "SMALL"
+    PROD:
+      database: "CLAIMS_PROD"
+      auto_suspend: 300
+      transform_wh_size: "MEDIUM"
