@@ -14,6 +14,11 @@ set -euo pipefail
 IMAGE="${IMAGE:-claims-airflow:local}"
 NAMESPACE="${NAMESPACE:-airflow}"
 RELEASE="${RELEASE:-airflow}"
+# Pin the chart to the version whose appVersion matches our base image
+# (apache/airflow:2.10.5). The latest chart ships Airflow 3.x, which is NOT
+# compatible with a 2.10 image. KIND_CLUSTER is the kind cluster name (if any).
+CHART_VERSION="${CHART_VERSION:-1.16.0}"
+KIND_CLUSTER="${KIND_CLUSTER:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 echo ">> [1/5] build image (context = repo root)"
@@ -22,7 +27,9 @@ docker build -f "$ROOT/k8s/Dockerfile" -t "$IMAGE" "$ROOT"
 echo ">> [2/5] load image into the local cluster"
 CTX="$(kubectl config current-context)"
 if command -v kind >/dev/null 2>&1 && kind get clusters 2>/dev/null | grep -q .; then
-  kind load docker-image "$IMAGE"
+  # Derive the kind cluster name from the kube context (kind-<name>) unless set.
+  [ -z "$KIND_CLUSTER" ] && KIND_CLUSTER="${CTX#kind-}"
+  kind load docker-image "$IMAGE" --name "$KIND_CLUSTER"
 elif command -v minikube >/dev/null 2>&1 && [[ "$CTX" == *minikube* ]]; then
   minikube image load "$IMAGE"
 else
@@ -45,10 +52,11 @@ helm repo add apache-airflow https://airflow.apache.org >/dev/null 2>&1 || true
 helm repo update >/dev/null
 helm upgrade --install "$RELEASE" apache-airflow/airflow \
   --namespace "$NAMESPACE" \
+  --version "$CHART_VERSION" \
   -f "$ROOT/k8s/values.yaml" \
   --set images.airflow.repository="${IMAGE%:*}" \
   --set images.airflow.tag="${IMAGE##*:}" \
-  --wait --timeout 10m
+  --wait --timeout 12m
 
 echo ">> [5/5] done. Open the UI with a port-forward:"
 echo "   kubectl port-forward -n $NAMESPACE svc/${RELEASE}-webserver 8080:8080"

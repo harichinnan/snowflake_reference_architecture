@@ -16,4 +16,4 @@ RUN pip install --no-cache-dir -r /requirements.txt
 # dbt-snowflake in its own venv (Cosmos-recommended isolation).
 RUN python -m venv /home/airflow/dbt_venv \
  && /home/airflow/dbt_venv/bin/pip install --no-cache-dir --upgrade pip \
- && /home/airflow/dbt_venv/bin/pip install --no-cache-dir "dbt-snowflake==1.8.9"
+ && /home/airflow/dbt_venv/bin/pip install --no-cache-dir "dbt-snowflake==1.8.4"

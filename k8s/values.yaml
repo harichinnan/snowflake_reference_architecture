@@ -50,10 +50,17 @@ webserver:
   service:
     type: ClusterIP          # access via `kubectl port-forward` (see README)
 
-# Bundled Postgres for the Airflow metadata DB (demo only; use an external,
-# managed Postgres in production).
+# Use an EXTERNAL Postgres for the Airflow metadata DB; the bundled subchart is
+# disabled. Create a Secret named `airflow-metadata-db` with key `connection`:
+#   postgresql://USER:PASS@HOST:PORT/airflow?sslmode=disable
+# (keeps DB creds out of this committed file). For a local Postgres reachable
+# from the cluster as host.docker.internal, e.g.:
+#   kubectl create secret generic airflow-metadata-db -n airflow \
+#     --from-literal=connection='postgresql://USER:PASS@host.docker.internal:5433/airflow?sslmode=disable'
 postgresql:
-  enabled: true
+  enabled: false
+data:
+  metadataSecretName: airflow-metadata-db
 
 # Trigger pods aren't needed for this demo.
 triggerer:
