@@ -152,17 +152,18 @@ EXCEPTION
 END;
 $$;
 
+-- Account-level privilege so CLAIMS_SYSADMIN can create the platform database(s)
+-- in script 003. (Role grants do NOT inherit account privileges, so this must be
+-- explicit even though CLAIMS_SYSADMIN is granted to SYSADMIN.)
+GRANT CREATE DATABASE ON ACCOUNT TO ROLE CLAIMS_SYSADMIN;
+
 -- Also let the human running setup adopt the platform admin role conveniently.
--- (Uses the session user; harmless and idempotent.)
-EXECUTE IMMEDIATE $$
-BEGIN
-  GRANT ROLE CLAIMS_SYSADMIN      TO USER IDENTIFIER(CURRENT_USER());
-  GRANT ROLE CLAIMS_SECURITY_ADMIN TO USER IDENTIFIER(CURRENT_USER());
-EXCEPTION
-  WHEN OTHER THEN
-    SYSTEM$LOG('info', 'Could not self-grant claims roles to current user; continuing.');
-END;
-$$;
+-- IDENTIFIER() requires a string/variable, NOT a function call, so capture the
+-- current user into a session variable first (IDENTIFIER(CURRENT_USER()) is a
+-- syntax error). Harmless and idempotent.
+SET sf_setup_user = (SELECT CURRENT_USER());
+GRANT ROLE CLAIMS_SYSADMIN       TO USER IDENTIFIER($sf_setup_user);
+GRANT ROLE CLAIMS_SECURITY_ADMIN TO USER IDENTIFIER($sf_setup_user);
 
 /* -----------------------------------------------------------------------------
    DONE. Object-level grants (warehouse usage, schema privileges, future grants)

@@ -88,12 +88,13 @@ USE SCHEMA CONTROL;
 CREATE TASK IF NOT EXISTS TSK_PROCESS_CLAIM_BRONZE
   WAREHOUSE = WH_CLAIMS_TRANSFORM
   SCHEDULE = '5 MINUTE'
-  WHEN SYSTEM$STREAM_HAS_DATA('BRONZE.STR_BR_CLAIM_EVENT')
+  -- NOTE: COMMENT must precede the WHEN clause in CREATE TASK syntax.
   COMMENT = 'Stream-gated: process newly landed CLAIM events. Replace body with dbt-proc CALL or MERGE.'
+  WHEN SYSTEM$STREAM_HAS_DATA('BRONZE.STR_BR_CLAIM_EVENT')
 AS
   INSERT INTO CONTROL.PIPELINE_RUN
     (pipeline_run_id, pipeline_name, environment, run_status, started_at, completed_at)
-  SELECT UUID_STRING(), 'claim_event', $claims_db, 'SUCCESS', CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP();
+  SELECT UUID_STRING(), 'claim_event', CURRENT_DATABASE(), 'SUCCESS', CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP();
 
 /* (b) Scheduled freshness-check task (no stream gate): recompute SLA status.
        Populates CONTROL.PIPELINE_FRESHNESS_STATUS from observed bronze ingest

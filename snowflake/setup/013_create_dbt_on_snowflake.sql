@@ -63,9 +63,8 @@ GRANT USAGE ON INTEGRATION CLAIMS_DBT_EAI TO ROLE CLAIMS_TRANSFORMER;
 -- =============================================================================
 -- 2) Privileges to own + run the DBT PROJECT object  (ACCOUNTADMIN/SECURITYADMIN)
 -- =============================================================================
-GRANT USAGE ON SCHEMA IDENTIFIER($claims_db) || '.DBT' TO ROLE CLAIMS_TRANSFORMER;
--- (If the IDENTIFIER concat form is rejected by your client, run the explicit
---  grant instead, e.g.:  GRANT USAGE ON SCHEMA CLAIMS_DEV.DBT TO ROLE CLAIMS_TRANSFORMER;)
+-- Bare schema name resolves against the active database (set by USE DATABASE).
+GRANT USAGE ON SCHEMA DBT TO ROLE CLAIMS_TRANSFORMER;
 USE SCHEMA DBT;
 GRANT CREATE DBT PROJECT ON SCHEMA DBT TO ROLE CLAIMS_TRANSFORMER;
 
