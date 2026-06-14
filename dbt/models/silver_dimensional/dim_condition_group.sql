@@ -19,8 +19,21 @@
 
 with condition_group as (
 
-    select *
+    select
+        condition_group_code,
+        condition_group_name,
+        description
     from {{ ref('ref_condition_group') }}
+
+    union all
+
+    -- Catch-all "Unknown" dimension member so diagnoses whose code has no
+    -- clinical group mapping (condition_group_code = 'UNGROUPED' in
+    -- dim_diagnosis) still resolve their condition_group_sk FK to a real row.
+    select
+        'UNGROUPED'                                            as condition_group_code,
+        'Ungrouped'                                            as condition_group_name,
+        'Catch-all for diagnoses with no condition-group mapping' as description
 
 ),
 

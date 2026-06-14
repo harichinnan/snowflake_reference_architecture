@@ -15,10 +15,30 @@
   )
 }}
 
-with procedure as (
+-- CONFORMED dimension: cover EVERY procedure code observed in claims UNION the
+-- reference seed, so the procedure bridge's FK to this dim holds for real codes
+-- outside the catalog. (Out-of-catalog codes remain flagged by the warn-severity
+-- claim_procedure.procedure_code -> ref_procedure_code relationship test.)
+with observed as (
+
+    select distinct procedure_code
+    from {{ ref('claim_procedure') }}
+    where procedure_code is not null
+
+),
+
+seed as (
 
     select *
     from {{ ref('ref_procedure_code') }}
+
+),
+
+all_codes as (
+
+    select procedure_code from observed
+    union
+    select procedure_code from seed
 
 ),
 
@@ -26,20 +46,23 @@ final as (
 
     select
         -- ---- surrogate key --------------------------------------------------
-        {{ generate_surrogate_key(['procedure_code']) }}       as procedure_sk,
+        {{ generate_surrogate_key(['ac.procedure_code']) }}    as procedure_sk,
 
         -- ---- natural key + attributes --------------------------------------
-        procedure_code,
-        -- ref_procedure_code carries short_description + category (not
-        -- description / procedure_category); expose them under the downstream names.
-        short_description as description,
-        code_system,                                           -- e.g. CPT / HCPCS
-        coalesce(category, 'Unknown')                          as category,
+        ac.procedure_code,
+        -- ref_procedure_code carries short_description + category; expose them
+        -- under the downstream names. Observed-but-unmapped codes get placeholders.
+        coalesce(s.short_description, 'Unmapped procedure (not in reference catalog)')
+                                                               as description,
+        coalesce(s.code_system, 'UNKNOWN')                     as code_system,  -- e.g. CPT / HCPCS
+        coalesce(s.category, 'Unknown')                        as category,
 
         -- ---- audit ----------------------------------------------------------
         {{ audit_columns() }}
 
-    from procedure
+    from all_codes ac
+    left join seed s
+        on ac.procedure_code = s.procedure_code
 
 )
 

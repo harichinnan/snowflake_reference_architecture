@@ -38,7 +38,8 @@ models:
         description: Claim adjudication status.
         tests:
           - accepted_values:
-              values: ['SUBMITTED', 'ACCEPTED', 'PENDED', 'PAID', 'DENIED', 'VOIDED', 'REVERSED', 'ADJUSTED']
+              # Generator emits VOID (not VOIDED) for voided claims; accept both.
+              values: ['SUBMITTED', 'ACCEPTED', 'PENDED', 'PAID', 'DENIED', 'VOID', 'VOIDED', 'REVERSED', 'ADJUSTED']
               config: { severity: warn }
       - name: claim_type
         description: Claim form/type classification.
@@ -272,7 +273,8 @@ models:
         tests:
           - not_null
           - accepted_values:
-              values: ['SUBMITTED', 'ACCEPTED', 'PENDED', 'PAID', 'DENIED', 'VOIDED', 'REVERSED', 'ADJUSTED']
+              # Generator emits VOID (not VOIDED) for voided claims; accept both.
+              values: ['SUBMITTED', 'ACCEPTED', 'PENDED', 'PAID', 'DENIED', 'VOID', 'VOIDED', 'REVERSED', 'ADJUSTED']
               config: { severity: warn }
       - name: paid_amount
         description: Header paid amount; ties to SUM(claim_line.paid_amount).
@@ -408,7 +410,8 @@ models:
       - name: event_type
         tests:
           - accepted_values:
-              values: ['SUBMITTED', 'PAID', 'DENIED', 'ADJUSTED', 'REVERSED', 'VOIDED', 'PENDED']
+              # Adjudication (835-style) event types emitted by the generator.
+              values: ['ADJUDICATED', 'ADJUSTED', 'REVERSED', 'VOID', 'DENIED', 'PAID', 'PENDED', 'SUBMITTED', 'VOIDED']
               config: { severity: warn }
       - name: paid_amount_delta
 

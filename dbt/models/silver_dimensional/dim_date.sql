@@ -22,12 +22,15 @@
 
 with spine as (
 
-    -- 10 full calendar years of days. date_spine is end-exclusive, so the upper
-    -- bound is 2028-01-01 to include all of 2027.
+    -- 13 full calendar years of days. date_spine is end-exclusive, so the upper
+    -- bound is 2031-01-01 to include all of 2030. The range must cover every
+    -- service/fill/event date in the data INCLUDING late- and future-dated
+    -- synthetic claims (some land in 2028); otherwise fact date_sk FKs and any
+    -- month_start lookups resolve to NULL.
     {{ date_spine(
         datepart = "day",
         start_date = "to_date('2018-01-01')",
-        end_date   = "to_date('2028-01-01')"
+        end_date   = "to_date('2031-01-01')"
     ) }}
 
 ),

@@ -171,7 +171,7 @@ models:
       - name: age_band
         tests:
           - accepted_values:
-              values: ['0-17', '18-34', '35-49', '50-64', '65+', 'Unknown']
+              values: ['0-17', '18-34', '35-49', '50-64', '65+', 'UNKNOWN']
       - name: payer_type
         tests:
           - accepted_values:

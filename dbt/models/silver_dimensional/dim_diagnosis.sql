@@ -16,7 +16,22 @@
   )
 }}
 
-with diagnosis as (
+-- CONFORMED dimension: must cover EVERY diagnosis code observed in claims, not
+-- just the reference catalog -- otherwise the diagnosis bridge's FK to this dim
+-- breaks for any real code outside the seed. We therefore build the code list
+-- from observed claim diagnoses UNION the reference seed, then enrich from the
+-- seed where a description exists. (Codes present in claims but absent from the
+-- reference catalog are still flagged separately by the warn-severity
+-- claim_diagnosis.diagnosis_code -> ref_diagnosis_code relationship test.)
+with observed as (
+
+    select distinct diagnosis_code
+    from {{ ref('claim_diagnosis') }}
+    where diagnosis_code is not null
+
+),
+
+seed as (
 
     select *
     from {{ ref('ref_diagnosis_code') }}
@@ -30,18 +45,27 @@ condition_group as (
 
 ),
 
+all_codes as (
+
+    select diagnosis_code from observed
+    union
+    select diagnosis_code from seed
+
+),
+
 final as (
 
     select
         -- ---- surrogate key --------------------------------------------------
-        {{ generate_surrogate_key(['d.diagnosis_code']) }}     as diagnosis_sk,
+        {{ generate_surrogate_key(['ac.diagnosis_code']) }}    as diagnosis_sk,
 
         -- ---- natural key + attributes --------------------------------------
-        d.diagnosis_code,
-        -- ref_diagnosis_code carries short_description (no plain description col);
-        -- expose it as `description` for downstream GOLD consumers.
-        d.short_description as description,
-        d.code_system,                                          -- e.g. ICD-10-CM
+        ac.diagnosis_code,
+        -- ref_diagnosis_code carries short_description; expose as `description`.
+        -- Observed-but-unmapped codes get a clear placeholder.
+        coalesce(s.short_description, 'Unmapped diagnosis (not in reference catalog)')
+                                                               as description,
+        coalesce(s.code_system, 'UNKNOWN')                     as code_system,  -- e.g. ICD-10-CM
 
         -- ---- clinical rollup -----------------------------------------------
         coalesce(cg.condition_group_code, 'UNGROUPED')         as condition_group_code,
@@ -54,11 +78,13 @@ final as (
         -- ---- audit ----------------------------------------------------------
         {{ audit_columns() }}
 
-    from diagnosis d
+    from all_codes ac
+    left join seed s
+        on ac.diagnosis_code = s.diagnosis_code
     -- ref_diagnosis_code.condition_group holds the condition-group CODE
     -- (e.g. 'DIABETES'), which maps to ref_condition_group.condition_group_code.
     left join condition_group cg
-        on d.condition_group = cg.condition_group_code
+        on s.condition_group = cg.condition_group_code
 
 )
 

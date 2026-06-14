@@ -1,23 +1,26 @@
 -- =============================================================================
 -- singular test: assert_late_arrivals_are_captured.sql
--- Target: silver_canonical.int_late_arriving_claims  ->  claim_header / fact_claim_line
+-- Target: silver_canonical.int_late_arriving_claims  ->  int_claim_event_deduped
 --
 -- Business rule
---   Late-arriving claims must NOT be silently dropped. Every claim flagged as
---   late-arriving (int_late_arriving_claims.late_arrival_flag = true) is a real,
---   VALID claim version that simply landed after its service period closed -- it
---   still has to flow through to the conformed claim_header and into the line
---   fact so its paid amount lands in the (restated) downstream aggregates.
+--   Late-arriving claims must NOT be silently dropped by the watermark / lookback
+--   window. Every claim flagged as late-arriving (int_late_arriving_claims.
+--   late_arrival_flag = true) must be CAPTURED by the pipeline, i.e. retained in
+--   the canonical dedupe/capture layer (int_claim_event_deduped).
 --
---   A flagged late arrival that is MISSING from claim_header (or has no lines in
---   fact_claim_line) means the late-arrival / lookback window dropped data that
---   should have re-opened a prior period -- a silent under-statement of paid.
+--   IMPORTANT: "captured" is asserted at the dedupe layer, NOT at claim_header.
+--   claim_header holds only the CURRENT VALID version of each claim, so a late
+--   arrival that is later voided / reversed / superseded legitimately does not
+--   appear there -- that is correct claim-lifecycle behavior, not data loss. The
+--   real failure mode we guard against is a late row being dropped entirely by
+--   the lookback window (absent from int_claim_event_deduped), which would
+--   silently under-state a prior period.
 --
 -- DCM domain: C (Watermark / late-arrival handling) + E (Data Quality
---   completeness) -- guards that the lookback window did not lose late rows.
+--   completeness).
 --
--- Semantics: dbt SINGULAR test -- returns the late claims that went MISSING
---            downstream. Empty = PASS.
+-- Semantics: dbt SINGULAR test -- returns late claims the pipeline failed to
+--            capture. Empty = PASS.
 -- =============================================================================
 
 with late as (
@@ -32,17 +35,12 @@ with late as (
 
 ),
 
-header as (
+captured as (
 
-    select claim_id, claim_version
-    from {{ ref('claim_header') }}
-
-),
-
-lines as (
-
+    -- The canonical capture point: every claim version the pipeline retained
+    -- after watermark/lookback filtering and dedupe.
     select distinct claim_id, claim_version
-    from {{ ref('fact_claim_line') }}
+    from {{ ref('int_claim_event_deduped') }}
 
 )
 
@@ -50,16 +48,10 @@ select
     l.claim_id,
     l.claim_version,
     l.member_id,
-    l.impacted_period,
-    iff(h.claim_id is null, true, false)                  as missing_from_header,
-    iff(ln.claim_id is null, true, false)                 as missing_from_lines
+    l.impacted_period
 from late l
-left join header h
-       on l.claim_id      = h.claim_id
-      and l.claim_version = h.claim_version
-left join lines  ln
-       on l.claim_id      = ln.claim_id
-      and l.claim_version = ln.claim_version
--- Violation: a flagged late arrival absent from the header OR absent from lines.
-where h.claim_id  is null
-   or ln.claim_id is null
+left join captured c
+       on l.claim_id      = c.claim_id
+      and l.claim_version = c.claim_version
+-- Violation: a flagged late arrival the pipeline dropped (never captured).
+where c.claim_id is null

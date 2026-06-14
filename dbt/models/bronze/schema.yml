@@ -37,7 +37,12 @@ models:
       - name: natural_key
         description: "claim_id|claim_version business identity used for dedupe. DCM D."
         data_tests:
-          - not_null
+          # natural_key is intentionally NULL for QUARANTINEd rows (missing
+          # required keys) -- the quarantine IS the handling (DCM E/F). Assert
+          # not-null only on rows that passed validation.
+          - not_null:
+              config:
+                where: "record_status <> 'QUARANTINE'"
       - name: payload_hash
         description: "Deterministic content hash of the VARIANT payload. DCM D."
         data_tests:
@@ -93,7 +98,12 @@ models:
       - name: natural_key
         description: "member_id|coverage_start_date|plan_id identity used for dedupe. DCM D."
         data_tests:
-          - not_null
+          # natural_key is intentionally NULL for QUARANTINEd rows (missing
+          # required keys) -- the quarantine IS the handling (DCM E/F). Assert
+          # not-null only on rows that passed validation.
+          - not_null:
+              config:
+                where: "record_status <> 'QUARANTINE'"
       - name: payload_hash
         description: "Deterministic content hash of the VARIANT payload. DCM D."
         data_tests:
@@ -143,7 +153,12 @@ models:
       - name: natural_key
         description: "npi business identity used for dedupe. DCM D."
         data_tests:
-          - not_null
+          # natural_key is intentionally NULL for QUARANTINEd rows (missing
+          # required keys) -- the quarantine IS the handling (DCM E/F). Assert
+          # not-null only on rows that passed validation.
+          - not_null:
+              config:
+                where: "record_status <> 'QUARANTINE'"
       - name: payload_hash
         description: "Deterministic content hash of the VARIANT payload. DCM D."
         data_tests:
@@ -192,7 +207,12 @@ models:
       - name: natural_key
         description: "pharmacy_claim_id identity used for dedupe. DCM D."
         data_tests:
-          - not_null
+          # natural_key is intentionally NULL for QUARANTINEd rows (missing
+          # required keys) -- the quarantine IS the handling (DCM E/F). Assert
+          # not-null only on rows that passed validation.
+          - not_null:
+              config:
+                where: "record_status <> 'QUARANTINE'"
       - name: payload_hash
         description: "Deterministic content hash of the VARIANT payload. DCM D."
         data_tests:
@@ -245,7 +265,12 @@ models:
       - name: natural_key
         description: "claim_id|adjudication_event_id identity used for dedupe. DCM D."
         data_tests:
-          - not_null
+          # natural_key is intentionally NULL for QUARANTINEd rows (missing
+          # required keys) -- the quarantine IS the handling (DCM E/F). Assert
+          # not-null only on rows that passed validation.
+          - not_null:
+              config:
+                where: "record_status <> 'QUARANTINE'"
       - name: payload_hash
         description: "Deterministic content hash of the VARIANT payload. DCM D."
         data_tests:

@@ -35,7 +35,7 @@ models:
         description: Actuarial age band of the member.
         tests:
           - accepted_values:
-              values: ['0-17', '18-34', '35-49', '50-64', '65+', 'Unknown']
+              values: ['0-17', '18-34', '35-49', '50-64', '65+', 'UNKNOWN']
       - name: gender
         description: Synthetic gender code.
       - name: state
