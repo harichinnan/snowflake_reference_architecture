@@ -1,0 +1,69 @@
+version: 2
+
+# =============================================================================
+# _x12_sources.yml
+# X12 837P bronze landing source. Declared in a SEPARATE source family
+# ('bronze_x12') and in THIS file so the canonical X12 models resolve their
+# source WITHOUT touching the existing models/sources.yml.
+#
+# One bronze row per X12 837P interchange file. The moov-io/x12 flat labeled
+# JSON lives in the `payload` VARIANT: payload:interchange_control_number,
+# payload:transaction_type, payload:segment_count, payload:segments[] where
+# each segment is {"_segment": <NAME>, "claim_seq": <int>, "01": ..., ...}.
+# =============================================================================
+
+sources:
+  - name: bronze_x12
+    description: >
+      BRONZE landing for X12 837P professional claim files parsed to moov-io/x12
+      flat labeled JSON. One row per interchange file; the full parsed document
+      is held in the immutable `payload` VARIANT. Standard bronze / DCM metadata
+      columns accompany every row. Data is SYNTHETIC.
+    database: "{{ target.database }}"
+    schema: RAW_LANDING
+    loader: COPY_INTO
+    # Freshness SLA (optional) -- warn after 24h, error after 48h with no load.
+    config:
+      freshness:
+        warn_after: { count: 24, period: hour }
+        error_after: { count: 48, period: hour }
+      loaded_at_field: ingest_ts
+    tables:
+      - name: br_raw_x12_claim_json
+        description: >
+          Landing for X12 837P (professional) claim interchanges. The `payload`
+          VARIANT holds the moov-io/x12 flat labeled JSON for one X12 file.
+        columns:
+          - name: bronze_event_id
+            description: Unique id for this landed bronze row / X12 file event (DCM A).
+          - name: source_system
+            description: Originating system that produced the X12 file (DCM A).
+          - name: source_file_name
+            description: Name of the source X12 file; part of the file natural key.
+          - name: source_extract_ts
+            description: Timestamp the file was extracted from the source (DCM A).
+          - name: ingest_ts
+            description: Timestamp the file landed in BRONZE; freshness field (DCM I).
+          - name: event_type
+            description: Bronze event type classification.
+          - name: business_event_ts
+            description: Business event timestamp for the interchange.
+          - name: natural_key
+            description: Business natural key for the landed file event.
+          - name: payload
+            description: >
+              VARIANT holding the moov-io/x12 flat labeled JSON
+              (interchange_control_number, transaction_type, segment_count,
+              segments[]). One element per X12 segment, labeled "01".."NN" with
+              `_segment` (segment name) and `claim_seq` (0 = file/shared level,
+              >0 = a distinct claim).
+          - name: payload_hash
+            description: DCM content hash of the payload (DCM D, idempotency).
+          - name: record_status
+            description: DCM record status (VALID / QUARANTINE).
+          - name: batch_id
+            description: Load batch identifier (DCM B).
+          - name: load_id
+            description: COPY INTO load identifier (DCM B).
+          - name: pipeline_run_id
+            description: Pipeline run identifier (DCM B).

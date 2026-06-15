@@ -26,6 +26,8 @@ flowchart LR
 
 ## 2. Bronze (VARIANT) model
 
+> **Landing vs. dbt-owned bronze.** Ingestion lands the physical raw events in the **`RAW_LANDING`** schema (`RAW_LANDING.BR_RAW_*` — the COPY INTO / loader / Airflow targets; not dbt-owned). The dbt bronze models read those landing tables (via the `bronze_landing` source) and materialize the curated **`BRONZE.BR_RAW_*`** relations, which **dbt owns exclusively**. This keeps the physical ingestion target and the dbt model output in separate schemas (no self-collision).
+
 Bronze tables are **append-only** and store the entire source record as a `VARIANT`, plus ingest metadata. Nothing is overwritten; corrections arrive as new rows and are resolved downstream.
 
 ```sql

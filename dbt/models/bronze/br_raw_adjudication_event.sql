@@ -25,7 +25,7 @@
 with source_rows as (
 
     select *
-    from {{ source('bronze', 'br_raw_adjudication_event') }}
+    from {{ source('bronze_landing', 'br_raw_adjudication_event') }}
 
     {% if is_incremental() %}
     where {{ incremental_watermark_filter(
@@ -142,10 +142,7 @@ finalized as (
         pipeline_run_id,
         is_reprocessed,
         created_at,
-        updated_at,
-
-        -- DCM H: standardized audit/lineage columns.
-        {{ audit_columns() }}
+        updated_at
     from validated
 
     -- DCM D: idempotent dedupe on natural_key + payload_hash.

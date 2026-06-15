@@ -29,7 +29,7 @@
 with source_rows as (
 
     select *
-    from {{ source('bronze', 'br_raw_claim_event') }}
+    from {{ source('bronze_landing', 'br_raw_claim_event') }}
 
     {% if is_incremental() %}
     -- DCM C: only pull rows at/after the stored watermark minus the configured
@@ -161,12 +161,7 @@ finalized as (
         pipeline_run_id,
         is_reprocessed,
         created_at,
-        updated_at,
-
-        -- DCM H (Lineage): standardized audit columns (e.g. dbt_loaded_at,
-        -- dbt_invocation_id, dbt_model). audit_columns() emits the comma-
-        -- separated column expressions; adjust if the macro's output differs.
-        {{ audit_columns() }}
+        updated_at
     from validated
 
     -- DCM D: idempotent dedupe. Within a natural_key + payload_hash we keep the

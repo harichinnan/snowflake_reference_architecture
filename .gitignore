@@ -75,3 +75,8 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# --- X12 / Synthea pipeline artifacts ----------------------------------------
+x12/x12tojson
+data_generator/synthea/synthea-with-dependencies.jar
+data_generator/synthea/output/

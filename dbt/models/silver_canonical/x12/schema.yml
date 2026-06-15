@@ -1,0 +1,171 @@
+version: 2
+
+# =============================================================================
+# SILVER_CANONICAL :: X12 837P model + test documentation
+#
+# Canonical claim entities parsed from the BRONZE.BR_RAW_X12_CLAIM_JSON landing
+# table (moov-io/x12 flat labeled JSON). Data is SYNTHETIC. Tests use CLASSIC
+# (dbt 1.10) syntax -- no `arguments:` wrapper.
+#
+# Conventions
+#   * Surrogate keys (*_sk) are deterministic MD5 hashes via
+#     generate_surrogate_key; tested unique + not_null at their grain.
+#   * Natural keys (claim_id, interchange_control_number, claim_seq) are
+#     preserved from the X12 file.
+#   * audit_columns() emits created_at/updated_at/source_system/batch_id/
+#     load_id/pipeline_run_id/payload_hash/is_current/effective_from/effective_to.
+# =============================================================================
+
+models:
+
+  # ===========================================================================
+  # INTERMEDIATE / STAGING
+  # ===========================================================================
+  - name: int_x12_claim_segments
+    description: >
+      One row per X12 segment, produced by LATERAL FLATTEN of payload:segments
+      from the BRONZE.BR_RAW_X12_CLAIM_JSON source. Exposes segment_index (the
+      flatten index = document order) used to associate LX -> SV1 -> DTP, plus
+      segment_name, claim_seq and the full segment VARIANT (seg).
+    columns:
+      - name: source_file_name
+        description: Source X12 file name (part of the file natural key).
+        tests:
+          - not_null
+      - name: interchange_control_number
+        description: X12 ISA13 interchange control number (part of the file natural key).
+      - name: bronze_event_id
+        description: Bronze row id for the originating X12 file.
+      - name: segment_index
+        description: Flatten index = position of the segment within payload:segments (document order).
+        tests:
+          - not_null
+      - name: segment_name
+        description: X12 segment name (_segment), e.g. ISA/GS/ST/NM1/CLM/HI/LX/SV1/DTP.
+      - name: claim_seq
+        description: 0 = file/billing-provider level (shared); >0 = a distinct claim.
+      - name: seg
+        description: The entire segment object (VARIANT) for element navigation.
+
+  # ===========================================================================
+  # CANONICAL ENTITIES
+  # ===========================================================================
+  - name: claim_header_x12
+    description: >
+      Conformed claim header parsed from X12 837P. One row per
+      (interchange_control_number, claim_seq) where claim_seq > 0. Joins the CLM
+      anchor to NM1 IL (subscriber), NM1 PR (payer), NM1 82 (rendering provider),
+      file-level NM1 85 (billing provider, claim_seq = 0) and the min service
+      DTP for the claim.
+    columns:
+      - name: claim_header_sk
+        description: Surrogate over (interchange_control_number, claim_seq, claim_id).
+        tests:
+          - not_null
+          - unique
+      - name: claim_id
+        description: Claim identifier from CLM:01 (natural key within the file).
+        tests:
+          - not_null
+      - name: interchange_control_number
+        description: X12 interchange control number (file natural key).
+      - name: claim_seq
+        description: Per-claim sequence within the file (>0).
+        tests:
+          - not_null
+      - name: total_charge_amount
+        description: Total claim charge from CLM:02.
+      - name: place_of_service
+        description: Place-of-service code from CLM:05:01 (or scalar CLM:05).
+      - name: subscriber_last_name
+        description: Subscriber/patient last or org name (NM1 IL:03).
+      - name: subscriber_first_name
+        description: Subscriber/patient first name (NM1 IL:04).
+      - name: subscriber_member_id
+        description: Subscriber member id (NM1 IL:09).
+      - name: payer_name
+        description: Payer name (NM1 PR:03).
+      - name: payer_id
+        description: Payer identifier (NM1 PR:09).
+      - name: billing_provider_npi
+        description: Billing provider NPI (file-level NM1 85:09, claim_seq = 0).
+      - name: billing_provider_name
+        description: Billing provider name (file-level NM1 85:03, claim_seq = 0).
+      - name: rendering_provider_npi
+        description: Rendering provider NPI (NM1 82:09).
+      - name: service_date
+        description: Earliest service date for the claim (min DTP:03).
+
+  - name: claim_line_x12
+    description: >
+      Conformed claim service lines parsed from X12 837P SV1 segments. One row
+      per SV1 (claim_seq > 0). The line number comes from the last LX before the
+      SV1 and the service date from the first 472-DTP after the SV1, both within
+      the same claim_seq by document order (segment_index).
+    columns:
+      - name: claim_line_sk
+        description: Surrogate over (source_file_name, interchange_control_number, claim_seq, line_number).
+        tests:
+          - not_null
+          - unique
+      - name: claim_header_sk
+        description: FK to claim_header_x12.claim_header_sk.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('claim_header_x12')
+              field: claim_header_sk
+      - name: claim_id
+        description: Claim identifier (CLM:01) for the owning claim.
+        tests:
+          - not_null
+      - name: line_number
+        description: Service line number (LX:01).
+      - name: procedure_code
+        description: Procedure code = split_part(SV1:01,'<',2).
+      - name: procedure_qualifier
+        description: Procedure code qualifier = split_part(SV1:01,'<',1).
+        tests:
+          - accepted_values:
+              values: ['HC']
+              config: { severity: warn }
+      - name: line_charge_amount
+        description: Line charge amount (SV1:02).
+      - name: units
+        description: Service units (SV1:04).
+      - name: service_date
+        description: Line service date (DTP:03, qualifier 472).
+
+  - name: claim_diagnosis_x12
+    description: >
+      Conformed claim diagnoses parsed from X12 837P HI segments. One row per HI
+      diagnosis element (claim_seq > 0): elements "01".."12" unpivoted via FLATTEN.
+      qualifier BK = principal, BF = other.
+    columns:
+      - name: claim_header_sk
+        description: FK to claim_header_x12.claim_header_sk.
+        tests:
+          - not_null
+          - relationships:
+              to: ref('claim_header_x12')
+              field: claim_header_sk
+      - name: claim_id
+        description: Claim identifier (CLM:01) for the owning claim.
+        tests:
+          - not_null
+      - name: diagnosis_code
+        description: Diagnosis code (HI element :02).
+        tests:
+          - not_null
+      - name: qualifier
+        description: Diagnosis qualifier (HI element :01); BK = principal, BF = other.
+        tests:
+          - accepted_values:
+              values: ['BK', 'BF']
+              config: { severity: warn }
+      - name: diagnosis_position
+        description: 1..n position of the diagnosis within the claim, by element-key order.
+        tests:
+          - not_null
+      - name: is_principal
+        description: True when qualifier = 'BK' (principal diagnosis).

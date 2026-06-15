@@ -2,10 +2,10 @@
 -- put_and_copy.sql  ::  Ingest SYNTHETIC claims NDJSON directly into Snowflake
 -- -----------------------------------------------------------------------------
 -- Snowflake ingestion: PUT local NDJSON -> RAW internal stage -> COPY INTO
--- the BRONZE landing tables.
+-- the RAW_LANDING physical landing tables (dbt then owns BRONZE.BR_RAW_*).
 --
 -- Run from the REPO ROOT (file:// paths are relative to the process CWD), with a
--- role that can write BRONZE (ACCOUNTADMIN / CLAIMS_SYSADMIN / CLAIMS_LOADER):
+-- role that can write RAW_LANDING (ACCOUNTADMIN / CLAIMS_SYSADMIN / CLAIMS_LOADER):
 --   snow sql -c my_example_connection --filename snowflake/load/put_and_copy.sql
 -- or:  make stage-load
 --
@@ -27,12 +27,12 @@ USE SCHEMA RAW;
 SET load_id = 'LOAD_' || TO_VARCHAR(CURRENT_TIMESTAMP(), 'YYYYMMDDHH24MISS');
 
 -- =============================================================================
--- CLAIM EVENTS  ->  BRONZE.BR_RAW_CLAIM_EVENT
+-- CLAIM EVENTS  ->  RAW_LANDING.BR_RAW_CLAIM_EVENT
 -- =============================================================================
 PUT 'file://data_generator/output/claim_events.ndjson' @STG_CLAIM_EVENT
   OVERWRITE = TRUE AUTO_COMPRESS = TRUE;
 
-COPY INTO CLAIMS_DEV.BRONZE.BR_RAW_CLAIM_EVENT
+COPY INTO CLAIMS_DEV.RAW_LANDING.BR_RAW_CLAIM_EVENT
   (bronze_event_id, source_system, source_file_name, source_file_row_number,
    source_extract_ts, event_type, business_event_ts, natural_key, payload,
    payload_hash, record_status, batch_id, load_id, is_reprocessed)
@@ -60,16 +60,16 @@ ON_ERROR = 'CONTINUE';
 INSERT INTO CLAIMS_DEV.CONTROL.LOAD_BATCH
   (batch_id, source_system, source_file_name, file_arrival_ts, file_row_count, load_status, loaded_at)
 SELECT $load_id || '_CLAIM', 'CLAIMS_CORE', 'claim_events.ndjson', CURRENT_TIMESTAMP(),
-       (SELECT COUNT(*) FROM CLAIMS_DEV.BRONZE.BR_RAW_CLAIM_EVENT WHERE load_id = $load_id),
+       (SELECT COUNT(*) FROM CLAIMS_DEV.RAW_LANDING.BR_RAW_CLAIM_EVENT WHERE load_id = $load_id),
        'LOADED', CURRENT_TIMESTAMP();
 
 -- =============================================================================
--- ELIGIBILITY EVENTS  ->  BRONZE.BR_RAW_ELIGIBILITY_EVENT
+-- ELIGIBILITY EVENTS  ->  RAW_LANDING.BR_RAW_ELIGIBILITY_EVENT
 -- =============================================================================
 PUT 'file://data_generator/output/eligibility_events.ndjson' @STG_ELIGIBILITY_EVENT
   OVERWRITE = TRUE AUTO_COMPRESS = TRUE;
 
-COPY INTO CLAIMS_DEV.BRONZE.BR_RAW_ELIGIBILITY_EVENT
+COPY INTO CLAIMS_DEV.RAW_LANDING.BR_RAW_ELIGIBILITY_EVENT
   (bronze_event_id, source_system, source_file_name, source_file_row_number,
    source_extract_ts, event_type, business_event_ts, natural_key, payload,
    payload_hash, record_status, batch_id, load_id, is_reprocessed)
@@ -88,16 +88,16 @@ ON_ERROR = 'CONTINUE';
 INSERT INTO CLAIMS_DEV.CONTROL.LOAD_BATCH
   (batch_id, source_system, source_file_name, file_arrival_ts, file_row_count, load_status, loaded_at)
 SELECT $load_id || '_ELIG', 'ELIG_SYS', 'eligibility_events.ndjson', CURRENT_TIMESTAMP(),
-       (SELECT COUNT(*) FROM CLAIMS_DEV.BRONZE.BR_RAW_ELIGIBILITY_EVENT WHERE load_id = $load_id),
+       (SELECT COUNT(*) FROM CLAIMS_DEV.RAW_LANDING.BR_RAW_ELIGIBILITY_EVENT WHERE load_id = $load_id),
        'LOADED', CURRENT_TIMESTAMP();
 
 -- =============================================================================
--- PROVIDER EVENTS  ->  BRONZE.BR_RAW_PROVIDER_EVENT
+-- PROVIDER EVENTS  ->  RAW_LANDING.BR_RAW_PROVIDER_EVENT
 -- =============================================================================
 PUT 'file://data_generator/output/provider_events.ndjson' @STG_PROVIDER_EVENT
   OVERWRITE = TRUE AUTO_COMPRESS = TRUE;
 
-COPY INTO CLAIMS_DEV.BRONZE.BR_RAW_PROVIDER_EVENT
+COPY INTO CLAIMS_DEV.RAW_LANDING.BR_RAW_PROVIDER_EVENT
   (bronze_event_id, source_system, source_file_name, source_file_row_number,
    source_extract_ts, event_type, business_event_ts, natural_key, payload,
    payload_hash, record_status, batch_id, load_id, is_reprocessed)
@@ -116,16 +116,16 @@ ON_ERROR = 'CONTINUE';
 INSERT INTO CLAIMS_DEV.CONTROL.LOAD_BATCH
   (batch_id, source_system, source_file_name, file_arrival_ts, file_row_count, load_status, loaded_at)
 SELECT $load_id || '_PROV', 'PROVIDER_MD', 'provider_events.ndjson', CURRENT_TIMESTAMP(),
-       (SELECT COUNT(*) FROM CLAIMS_DEV.BRONZE.BR_RAW_PROVIDER_EVENT WHERE load_id = $load_id),
+       (SELECT COUNT(*) FROM CLAIMS_DEV.RAW_LANDING.BR_RAW_PROVIDER_EVENT WHERE load_id = $load_id),
        'LOADED', CURRENT_TIMESTAMP();
 
 -- =============================================================================
--- PHARMACY EVENTS  ->  BRONZE.BR_RAW_PHARMACY_EVENT
+-- PHARMACY EVENTS  ->  RAW_LANDING.BR_RAW_PHARMACY_EVENT
 -- =============================================================================
 PUT 'file://data_generator/output/pharmacy_events.ndjson' @STG_PHARMACY_EVENT
   OVERWRITE = TRUE AUTO_COMPRESS = TRUE;
 
-COPY INTO CLAIMS_DEV.BRONZE.BR_RAW_PHARMACY_EVENT
+COPY INTO CLAIMS_DEV.RAW_LANDING.BR_RAW_PHARMACY_EVENT
   (bronze_event_id, source_system, source_file_name, source_file_row_number,
    source_extract_ts, event_type, business_event_ts, natural_key, payload,
    payload_hash, record_status, batch_id, load_id, is_reprocessed)
@@ -144,16 +144,16 @@ ON_ERROR = 'CONTINUE';
 INSERT INTO CLAIMS_DEV.CONTROL.LOAD_BATCH
   (batch_id, source_system, source_file_name, file_arrival_ts, file_row_count, load_status, loaded_at)
 SELECT $load_id || '_PHRM', 'RX_HUB', 'pharmacy_events.ndjson', CURRENT_TIMESTAMP(),
-       (SELECT COUNT(*) FROM CLAIMS_DEV.BRONZE.BR_RAW_PHARMACY_EVENT WHERE load_id = $load_id),
+       (SELECT COUNT(*) FROM CLAIMS_DEV.RAW_LANDING.BR_RAW_PHARMACY_EVENT WHERE load_id = $load_id),
        'LOADED', CURRENT_TIMESTAMP();
 
 -- =============================================================================
--- ADJUDICATION EVENTS  ->  BRONZE.BR_RAW_ADJUDICATION_EVENT
+-- ADJUDICATION EVENTS  ->  RAW_LANDING.BR_RAW_ADJUDICATION_EVENT
 -- =============================================================================
 PUT 'file://data_generator/output/adjudication_events.ndjson' @STG_ADJUDICATION_EVENT
   OVERWRITE = TRUE AUTO_COMPRESS = TRUE;
 
-COPY INTO CLAIMS_DEV.BRONZE.BR_RAW_ADJUDICATION_EVENT
+COPY INTO CLAIMS_DEV.RAW_LANDING.BR_RAW_ADJUDICATION_EVENT
   (bronze_event_id, source_system, source_file_name, source_file_row_number,
    source_extract_ts, event_type, business_event_ts, natural_key, payload,
    payload_hash, record_status, batch_id, load_id, is_reprocessed)
@@ -172,7 +172,7 @@ ON_ERROR = 'CONTINUE';
 INSERT INTO CLAIMS_DEV.CONTROL.LOAD_BATCH
   (batch_id, source_system, source_file_name, file_arrival_ts, file_row_count, load_status, loaded_at)
 SELECT $load_id || '_ADJD', 'ADJUD_ENGINE', 'adjudication_events.ndjson', CURRENT_TIMESTAMP(),
-       (SELECT COUNT(*) FROM CLAIMS_DEV.BRONZE.BR_RAW_ADJUDICATION_EVENT WHERE load_id = $load_id),
+       (SELECT COUNT(*) FROM CLAIMS_DEV.RAW_LANDING.BR_RAW_ADJUDICATION_EVENT WHERE load_id = $load_id),
        'LOADED', CURRENT_TIMESTAMP();
 
 -- =============================================================================

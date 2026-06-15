@@ -5,8 +5,10 @@
 # Three source families, all resolved against the target database
 # (CLAIMS_DEV / CLAIMS_PROD via {{ target.database }}):
 #
-#   - bronze  : BRONZE.BR_RAW_* landing tables (VARIANT payload + DCM columns)
-#               that COPY INTO from the RAW internal-stage loads populates.
+#   - bronze_landing : RAW_LANDING.BR_RAW_* physical landing tables (VARIANT
+#               payload + DCM columns) that COPY INTO from the RAW internal-stage
+#               loads populates. dbt bronze models read these and materialize the
+#               dbt-owned BRONZE.BR_RAW_* outputs (a SEPARATE schema).
 #   - control : CONTROL.* DCM operational tables (Source/Batch/Watermark/
 #               Idempotency/Reprocessing/SLA/Semantic/Contract domains).
 #   - audit   : AUDIT.* tables (Data Quality, Quarantine, Lineage domains).
@@ -18,17 +20,18 @@ version: 2
 
 sources:
   # ---------------------------------------------------------------------------
-  # BRONZE landing tables -- DCM Domain A (Source) + B (Batch) + D (Idempotency)
-  # Populated by COPY INTO from the RAW internal stage. One landing table per
-  # claims sub-domain. All share the canonical landing contract (see columns).
+  # RAW_LANDING physical landing tables -- DCM Domain A (Source) + B (Batch) + D
+  # (Idempotency). Populated by COPY INTO from the RAW internal stage. One landing
+  # table per claims sub-domain. All share the canonical landing contract (see
+  # columns). dbt bronze models read these and own the BRONZE.BR_RAW_* outputs.
   # ---------------------------------------------------------------------------
-  - name: bronze
+  - name: bronze_landing
     description: >
-      BRONZE landing tables. Immutable VARIANT payloads plus ingest/DCM metadata
-      produced by the RAW -> BRONZE COPY INTO. dbt bronze models standardize
-      these into the conformed BR_* models.
+      RAW_LANDING physical landing tables. Immutable VARIANT payloads plus
+      ingest/DCM metadata produced by the RAW -> RAW_LANDING COPY INTO. dbt bronze
+      models standardize these into the dbt-owned BRONZE.BR_RAW_* models.
     database: "{{ target.database }}"
-    schema: BRONZE
+    schema: RAW_LANDING
     loader: COPY_INTO
     # Freshness SLA (DCM Domain I) -- warn after 24h, error after 48h with no load.
     config:

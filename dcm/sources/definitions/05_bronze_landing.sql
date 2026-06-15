@@ -1,17 +1,19 @@
 /* =============================================================================
    05_bronze_landing.sql
-   DCM declarative definitions for the BRONZE landing tables (BR_RAW_*).
+   DCM declarative definitions for the RAW_LANDING landing tables (BR_RAW_*).
    -----------------------------------------------------------------------------
-   Replaces the BRONZE-schema CREATE TABLEs (group B) in
-   snowflake/setup/006_create_audit_tables.sql. These are the COPY INTO targets:
-   append-only, source-faithful landing tables for each feed.
+   Replaces the landing-table CREATE TABLEs (group B) that used to live in
+   snowflake/setup/006_create_audit_tables.sql (now in 016_create_raw_landing.sql).
+   These are the COPY INTO targets: append-only, source-faithful landing tables
+   for each feed, in the RAW_LANDING schema (physical ingestion landing, NOT
+   dbt-owned). The dbt-owned BRONZE.BR_RAW_* outputs are NOT DCM-defined.
 
    DCM-declarative DEFINE TABLE statements (CREATE-OR-ALTER form). No CREATE /
    IF NOT EXISTS / OR REPLACE; every object is fully qualified with the
    {{ database }} Jinja variable (CLAIMS_DEV / CLAIMS_PROD). No DML.
    ============================================================================= */
 
-DEFINE TABLE {{ database }}.BRONZE.BR_RAW_CLAIM_EVENT (
+DEFINE TABLE {{ database }}.RAW_LANDING.BR_RAW_CLAIM_EVENT (
   bronze_event_id        STRING        COMMENT 'Deterministic row id (file + row number hash).',
   source_system          STRING        COMMENT 'Originating source system.',
   source_file_name       STRING        COMMENT 'Stage file name (METADATA$FILENAME).',
@@ -34,7 +36,7 @@ DEFINE TABLE {{ database }}.BRONZE.BR_RAW_CLAIM_EVENT (
 )
 COMMENT = 'Bronze landing: raw CLAIM events (append-only, source-faithful, SYNTHETIC). COPY INTO target.';
 
-DEFINE TABLE {{ database }}.BRONZE.BR_RAW_ELIGIBILITY_EVENT (
+DEFINE TABLE {{ database }}.RAW_LANDING.BR_RAW_ELIGIBILITY_EVENT (
   bronze_event_id        STRING,
   source_system          STRING,
   source_file_name       STRING,
@@ -57,7 +59,7 @@ DEFINE TABLE {{ database }}.BRONZE.BR_RAW_ELIGIBILITY_EVENT (
 )
 COMMENT = 'Bronze landing: raw ELIGIBILITY events (append-only, SYNTHETIC). COPY INTO target.';
 
-DEFINE TABLE {{ database }}.BRONZE.BR_RAW_PROVIDER_EVENT (
+DEFINE TABLE {{ database }}.RAW_LANDING.BR_RAW_PROVIDER_EVENT (
   bronze_event_id        STRING,
   source_system          STRING,
   source_file_name       STRING,
@@ -80,7 +82,7 @@ DEFINE TABLE {{ database }}.BRONZE.BR_RAW_PROVIDER_EVENT (
 )
 COMMENT = 'Bronze landing: raw PROVIDER events (append-only, SYNTHETIC). COPY INTO target.';
 
-DEFINE TABLE {{ database }}.BRONZE.BR_RAW_PHARMACY_EVENT (
+DEFINE TABLE {{ database }}.RAW_LANDING.BR_RAW_PHARMACY_EVENT (
   bronze_event_id        STRING,
   source_system          STRING,
   source_file_name       STRING,
@@ -103,7 +105,7 @@ DEFINE TABLE {{ database }}.BRONZE.BR_RAW_PHARMACY_EVENT (
 )
 COMMENT = 'Bronze landing: raw PHARMACY events (append-only, SYNTHETIC). COPY INTO target.';
 
-DEFINE TABLE {{ database }}.BRONZE.BR_RAW_ADJUDICATION_EVENT (
+DEFINE TABLE {{ database }}.RAW_LANDING.BR_RAW_ADJUDICATION_EVENT (
   bronze_event_id        STRING,
   source_system          STRING,
   source_file_name       STRING,

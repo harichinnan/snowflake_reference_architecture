@@ -10,6 +10,7 @@ DEFINE DATABASE {{ database }}
 
 -- Medallion + governance + Cortex schemas.
 DEFINE SCHEMA {{ database }}.RAW                 COMMENT = 'COPY INTO landing + dbt seeds.';
+DEFINE SCHEMA {{ database }}.RAW_LANDING         COMMENT='Physical ingestion landing (not dbt-owned).';
 DEFINE SCHEMA {{ database }}.BRONZE              COMMENT = 'Immutable VARIANT payloads + ingest metadata.';
 DEFINE SCHEMA {{ database }}.SILVER_CANONICAL    COMMENT = 'Normalized, typed, deduped business entities.';
 DEFINE SCHEMA {{ database }}.SILVER_DIMENSIONAL  COMMENT = 'Star schema (facts + conformed dims).';

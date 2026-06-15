@@ -45,13 +45,15 @@ USE ROLE CLAIMS_SYSADMIN;
 USE DATABASE IDENTIFIER($claims_db);
 
 /* =============================================================================
-   1. STREAMS — one per bronze landing table (CDC over new arrivals).
+   1. STREAMS — one per RAW_LANDING landing table (CDC over new arrivals).
    -----------------------------------------------------------------------------
-   APPEND_ONLY = TRUE because bronze is append-only; this is the cheapest stream
-   type and exactly matches the access pattern. A downstream task consumes the
-   stream to drive incremental processing without rescanning the whole table.
+   APPEND_ONLY = TRUE because the landing tables are append-only; this is the
+   cheapest stream type and exactly matches the access pattern. A downstream task
+   consumes the stream to drive incremental processing without rescanning the
+   whole table. Streams sit on the PHYSICAL landing (RAW_LANDING.BR_RAW_*), not
+   the dbt-owned BRONZE.BR_RAW_* outputs.
    ============================================================================= */
-USE SCHEMA BRONZE;
+USE SCHEMA RAW_LANDING;
 
 CREATE STREAM IF NOT EXISTS STR_BR_CLAIM_EVENT
   ON TABLE BR_RAW_CLAIM_EVENT        APPEND_ONLY = TRUE
@@ -90,7 +92,7 @@ CREATE TASK IF NOT EXISTS TSK_PROCESS_CLAIM_BRONZE
   SCHEDULE = '5 MINUTE'
   -- NOTE: COMMENT must precede the WHEN clause in CREATE TASK syntax.
   COMMENT = 'Stream-gated: process newly landed CLAIM events. Replace body with dbt-proc CALL or MERGE.'
-  WHEN SYSTEM$STREAM_HAS_DATA('BRONZE.STR_BR_CLAIM_EVENT')
+  WHEN SYSTEM$STREAM_HAS_DATA('RAW_LANDING.STR_BR_CLAIM_EVENT')
 AS
   INSERT INTO CONTROL.PIPELINE_RUN
     (pipeline_run_id, pipeline_name, environment, run_status, started_at, completed_at)
